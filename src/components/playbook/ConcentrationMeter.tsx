@@ -17,7 +17,7 @@ export function ConcentrationMeter({
       <div className="relative h-4 bg-stone-100 rounded-full overflow-visible mb-3">
         {/* Target zone */}
         <div
-          className="absolute top-0 h-full bg-teal-100 rounded-sm"
+          className="absolute top-0 h-full bg-teal-100 rounded-sm bar-grow-in"
           style={{
             left: `${targetMinPct}%`,
             width: `${targetMaxPct - targetMinPct}%`,
@@ -25,7 +25,7 @@ export function ConcentrationMeter({
         />
         {/* Current bar */}
         <div
-          className="absolute top-0 left-0 h-full bg-amber-400 rounded-full"
+          className="absolute top-0 left-0 h-full bg-amber-400 rounded-full bar-grow-in"
           style={{ width: `${Math.min(currentPct, 100)}%` }}
         />
         {/* Target marker */}

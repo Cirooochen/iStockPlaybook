@@ -26,7 +26,7 @@ export function ConcentrationOverview({ portfolio: _ }: Props) {
             </span>
             <div className="flex-1 h-2 bg-stone-100 rounded-full overflow-hidden">
               <div
-                className={`h-full rounded-full transition-all ${
+                className={`h-full rounded-full transition-colors bar-grow-in ${
                   item.isAlert ? "bg-amber-400" : "bg-stone-300"
                 }`}
                 style={{ width: `${item.weightPct}%` }}

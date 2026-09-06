@@ -14,7 +14,7 @@ const rows: Array<{ key: keyof Scorecard; label: string }> = [
   { key: "momentum", label: "Momentum" },
   { key: "thesisHealth", label: "Thesis health" },
   { key: "positionFit", label: "Position fit" },
-  { key: "risk", label: "Risk" },
+  { key: "concentrationRisk", label: "Concentration risk" },
 ];
 
 interface Props {
@@ -40,7 +40,7 @@ export function SignalScorecard({ scorecard }: Props) {
               {/* Bar */}
               <div className="flex-1 h-1.5 bg-stone-100 rounded-full overflow-hidden">
                 <div
-                  className={`h-full rounded-full transition-all ${
+                  className={`h-full rounded-full transition-colors bar-grow-in ${
                     item.score >= 7
                       ? "bg-teal-400"
                       : item.score >= 5
@@ -72,12 +72,12 @@ export function SignalScorecard({ scorecard }: Props) {
           <p className="text-sm font-semibold text-teal-700">High</p>
         </div>
         <div>
-          <p className="text-xs text-stone-400 mb-1">Entry attractiveness</p>
-          <p className="text-sm font-semibold text-amber-700">Low</p>
+          <p className="text-xs text-stone-400 mb-1">Valuation</p>
+          <p className="text-sm font-semibold text-amber-700">Elevated</p>
         </div>
         <div>
-          <p className="text-xs text-stone-400 mb-1">Portfolio fit</p>
-          <p className="text-sm font-semibold text-amber-700">Low</p>
+          <p className="text-xs text-stone-400 mb-1">Position fit</p>
+          <p className="text-sm font-semibold text-amber-700">Poor</p>
         </div>
       </div>
     </div>

@@ -1,15 +1,12 @@
 import { notFound } from "next/navigation";
-import { unitySeed, unityActionZones, unityScorecard } from "@/data/unity-seed";
-import { StockHeader } from "@/components/playbook/StockHeader";
-import { PlaybookStatusBanner } from "@/components/playbook/PlaybookStatusBanner";
-import { PositionAndStrategy } from "@/components/playbook/PositionAndStrategy";
-import { ActionZoneSection } from "@/components/playbook/ActionZoneSection";
-import { WhyThisStance } from "@/components/playbook/WhyThisStance";
-import { SignalScorecard } from "@/components/playbook/SignalScorecard";
-import { ThesisCard } from "@/components/playbook/ThesisCard";
-import { WhatChangesMyView } from "@/components/playbook/WhatChangesMyView";
-import { ResearchPreview } from "@/components/playbook/ResearchPreview";
-import { TimelinePreview } from "@/components/playbook/TimelinePreview";
+import {
+  unitySeed,
+  unityActionZones,
+  unityScorecard,
+  unityTimeline,
+} from "@/data/unity-seed";
+import { portfolioSeed } from "@/data/portfolio-seed";
+import { PlaybookClientShell } from "@/components/playbook/PlaybookClientShell";
 
 export default async function StockPlaybookPage({
   params,
@@ -21,17 +18,12 @@ export default async function StockPlaybookPage({
   }
 
   return (
-    <div>
-      <StockHeader seed={unitySeed} />
-      <PlaybookStatusBanner seed={unitySeed} />
-      <PositionAndStrategy seed={unitySeed} />
-      <ActionZoneSection zones={unityActionZones} />
-      <WhyThisStance />
-      <SignalScorecard scorecard={unityScorecard} />
-      <ThesisCard />
-      <WhatChangesMyView />
-      <ResearchPreview />
-      <TimelinePreview />
-    </div>
+    <PlaybookClientShell
+      seed={unitySeed}
+      initialZones={unityActionZones}
+      initialScorecard={unityScorecard}
+      initialTimeline={unityTimeline}
+      initialPortfolioTotalEur={portfolioSeed.totalValueEur}
+    />
   );
 }

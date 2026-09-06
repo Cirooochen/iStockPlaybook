@@ -4,9 +4,10 @@ import { ChevronLeft, Clock, Plus } from "lucide-react";
 
 interface Props {
   seed: StockSeed;
+  onAddTransaction?: () => void;
 }
 
-export function StockHeader({ seed }: Props) {
+export function StockHeader({ seed, onAddTransaction }: Props) {
   const { security, market } = seed;
   const dailySign = market.dailyChangePct >= 0 ? "+" : "";
 
@@ -58,11 +59,14 @@ export function StockHeader({ seed }: Props) {
 
         {/* Right: actions */}
         <div className="flex items-center gap-2">
-          <button className="flex items-center gap-1.5 px-3.5 py-1.5 text-sm text-stone-600 border border-stone-300 rounded-md hover:bg-stone-50 transition-colors">
+          <button
+            onClick={onAddTransaction}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 text-sm text-stone-600 border border-stone-300 rounded-md hover:bg-stone-50 transition duration-[160ms] [transition-timing-function:var(--ease-out)] motion-safe:active:scale-[0.97]"
+          >
             <Plus className="w-3.5 h-3.5" />
             Transaction
           </button>
-          <button className="flex items-center gap-1.5 px-3.5 py-1.5 text-sm text-stone-600 border border-stone-300 rounded-md hover:bg-stone-50 transition-colors">
+          <button className="flex items-center gap-1.5 px-3.5 py-1.5 text-sm text-stone-600 border border-stone-300 rounded-md hover:bg-stone-50 transition duration-[160ms] [transition-timing-function:var(--ease-out)] motion-safe:active:scale-[0.97]">
             <Plus className="w-3.5 h-3.5" />
             Research
           </button>

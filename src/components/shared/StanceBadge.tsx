@@ -4,7 +4,7 @@ const stanceConfig: Record<
   Stance,
   { label: string; className: string }
 > = {
-  HOLD_TRIM: {
+  HOLD_GRADUALLY_TRIM: {
     label: "HOLD / GRADUALLY TRIM",
     className: "bg-amber-50 text-amber-800 border border-amber-200",
   },

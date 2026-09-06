@@ -26,7 +26,7 @@ export const portfolioSeed: Portfolio = {
         unrealizedReturnPct: 45.75,
         portfolioWeightPct: 58.6,
       },
-      playbookStance: "HOLD_TRIM",
+      playbookStance: "HOLD_GRADUALLY_TRIM",
       playbookReason: "Concentration remains above target",
       attentionState: "WATCH",
     },

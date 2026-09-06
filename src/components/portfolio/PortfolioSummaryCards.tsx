@@ -1,5 +1,4 @@
 import type { Portfolio } from "@/types/playbook";
-import { AlertTriangle } from "lucide-react";
 
 interface Props {
   portfolio: Portfolio;
@@ -42,20 +41,23 @@ export function PortfolioSummaryCards({ portfolio }: Props) {
       {cards.map((card) => (
         <div
           key={card.label}
-          className="bg-white rounded-lg border border-stone-200 px-5 py-4"
+          className={`bg-white rounded-xl px-6 py-5 border ${
+            card.alert ? "border-amber-200" : "border-stone-200"
+          }`}
         >
-          <p className="text-xs text-stone-400 uppercase tracking-wide mb-2">
+          <p className="text-[11px] font-medium text-stone-400 uppercase tracking-widest mb-3">
             {card.label}
           </p>
-          <div className="flex items-end gap-2">
-            <span className="text-2xl font-semibold text-stone-900">
-              {card.value}
-            </span>
-            {card.alert && (
-              <AlertTriangle className="w-4 h-4 text-amber-500 mb-0.5" />
-            )}
-          </div>
-          <p className="text-xs text-stone-400 mt-0.5">{card.sub}</p>
+          <p
+            className={`text-3xl font-light tracking-tight tabular-nums ${
+              card.alert ? "text-amber-600" : "text-stone-900"
+            }`}
+          >
+            {card.value}
+          </p>
+          <p className={`text-xs mt-1.5 ${card.alert ? "text-amber-500" : "text-stone-400"}`}>
+            {card.sub}
+          </p>
         </div>
       ))}
     </div>

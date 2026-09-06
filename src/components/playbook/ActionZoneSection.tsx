@@ -1,11 +1,25 @@
+"use client";
+
+import { useState } from "react";
 import type { ActionZone } from "@/types/playbook";
+import type { TrimSizing } from "@/domain/portfolio/concentration";
+import type { HardConstraintResult } from "@/domain/playbook/hard-constraints";
 import { ActionZoneCard } from "./ActionZoneCard";
+import { ActionZoneDrawer } from "./ActionZoneDrawer";
 
 interface Props {
   zones: ActionZone[];
+  trimSizing: TrimSizing;
+  firedConstraints: HardConstraintResult[];
 }
 
-export function ActionZoneSection({ zones }: Props) {
+export function ActionZoneSection({ zones, trimSizing, firedConstraints }: Props) {
+  const [selectedZone, setSelectedZone] = useState<ActionZone | null>(null);
+
+  function handleCardClick(zone: ActionZone) {
+    setSelectedZone((prev) => (prev?.type === zone.type ? null : zone));
+  }
+
   return (
     <section className="mb-8">
       <div className="mb-4">
@@ -16,16 +30,22 @@ export function ActionZoneSection({ zones }: Props) {
           These are planning conditions, not automatic trade instructions.
         </p>
       </div>
-
       <div className="space-y-2">
         {zones.map((zone) => (
           <ActionZoneCard
             key={zone.type}
             zone={zone}
-            defaultOpen={zone.type === "HOLD"}
+            isSelected={selectedZone?.type === zone.type}
+            onClick={() => handleCardClick(zone)}
           />
         ))}
       </div>
+      <ActionZoneDrawer
+        zone={selectedZone}
+        onClose={() => setSelectedZone(null)}
+        trimSizing={trimSizing}
+        firedConstraints={firedConstraints}
+      />
     </section>
   );
 }

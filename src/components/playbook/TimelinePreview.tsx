@@ -1,4 +1,3 @@
-import { unityTimeline } from "@/data/unity-seed";
 import type { TimelineEntry } from "@/types/playbook";
 import { ArrowRight } from "lucide-react";
 
@@ -7,12 +6,16 @@ const entryStyle: Record<TimelineEntry["type"], { dot: string; label: string }> 
     PLAYBOOK_UPDATED: { dot: "bg-stone-400", label: "PLAYBOOK UPDATED" },
     STANCE_CHANGE: { dot: "bg-amber-400", label: "STANCE CHANGE" },
     BUY: { dot: "bg-teal-400", label: "BUY" },
-    SELL: { dot: "bg-stone-400", label: "SELL" },
+    SELL: { dot: "bg-orange-400", label: "SELL" },
     THESIS_EDIT: { dot: "bg-blue-400", label: "THESIS EDIT" },
   };
 
-export function TimelinePreview() {
-  const preview = unityTimeline.slice(0, 4);
+interface Props {
+  timeline: TimelineEntry[];
+}
+
+export function TimelinePreview({ timeline }: Props) {
+  const preview = timeline.slice(0, 5);
 
   return (
     <div className="bg-white rounded-lg border border-stone-200 p-6 mb-6">
@@ -25,9 +28,7 @@ export function TimelinePreview() {
       </div>
 
       <div className="relative">
-        {/* Vertical line */}
         <div className="absolute left-[7px] top-2 bottom-2 w-px bg-stone-100" />
-
         <div className="space-y-5">
           {preview.map((entry, i) => {
             const style = entryStyle[entry.type];
@@ -47,9 +48,7 @@ export function TimelinePreview() {
                   </div>
                   <p className="text-sm text-stone-700">{entry.summary}</p>
                   {entry.detail && (
-                    <p className="text-xs text-stone-400 mt-0.5">
-                      {entry.detail}
-                    </p>
+                    <p className="text-xs text-stone-400 mt-0.5">{entry.detail}</p>
                   )}
                 </div>
               </div>

@@ -1,5 +1,5 @@
 export type Stance =
-  | "HOLD_TRIM"
+  | "HOLD_GRADUALLY_TRIM"
   | "HOLD"
   | "BUILD"
   | "ADD"
@@ -50,7 +50,7 @@ export interface Scorecard {
   momentum: ScoreItem;
   thesisHealth: ScoreItem;
   positionFit: ScoreItem;
-  risk: ScoreItem;
+  concentrationRisk: ScoreItem;
 }
 
 export interface Security {
@@ -58,6 +58,8 @@ export interface Security {
   ticker: string;
   exchange: string;
   marketCurrency: string;
+  isin?: string;
+  executionCurrency?: string;
 }
 
 export interface MarketData {

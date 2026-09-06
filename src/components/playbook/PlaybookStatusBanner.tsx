@@ -1,4 +1,5 @@
-import type { StockSeed } from "@/types/playbook";
+import type { StockSeed, Stance } from "@/types/playbook";
+import { stanceDisplayLabel } from "@/domain/playbook/stance-rules";
 import { HelpCircle, History } from "lucide-react";
 
 const confidenceLabel: Record<string, string> = {
@@ -24,9 +25,10 @@ const thesisHealthLabel: Record<string, { label: string; className: string }> =
 
 interface Props {
   seed: StockSeed;
+  stance: Stance;
 }
 
-export function PlaybookStatusBanner({ seed }: Props) {
+export function PlaybookStatusBanner({ seed, stance }: Props) {
   const { playbook } = seed;
   const health = thesisHealthLabel[playbook.thesisHealth];
 
@@ -39,7 +41,7 @@ export function PlaybookStatusBanner({ seed }: Props) {
           </p>
           <div className="flex items-center gap-3 mb-1">
             <h2 className="text-xl font-bold text-stone-900 tracking-tight">
-              HOLD / GRADUALLY TRIM
+              {stanceDisplayLabel[stance]}
             </h2>
             <span
               className={`text-xs px-2 py-0.5 rounded font-medium ${health.className}`}

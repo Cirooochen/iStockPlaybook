@@ -12,6 +12,8 @@ export const unitySeed: StockSeed = {
     ticker: "U",
     exchange: "NYSE",
     marketCurrency: "USD",
+    isin: "US91332U1016",
+    executionCurrency: "EUR",
   },
   market: {
     executionPriceEur: 40.46,
@@ -37,7 +39,7 @@ export const unitySeed: StockSeed = {
     tacticalSharesMax: 300,
   },
   playbook: {
-    stance: "HOLD_TRIM",
+    stance: "HOLD_GRADUALLY_TRIM",
     confidence: "MEDIUM",
     thesisHealth: "INTACT",
     version: 6,
@@ -114,7 +116,7 @@ export const unityActionZones: ActionZone[] = [
     state: "WATCH",
     title: "Trim Level 2",
     summary: "Trim further if valuation expands faster than earnings power.",
-    suggestedShares: "75–125",
+    suggestedShares: "75–100",
     primaryTrigger:
       "Further price appreciation without a comparable increase in earnings power or forward expectations.",
     suggestedAction: "Consider selling another 75–125 tactical shares.",
@@ -141,9 +143,11 @@ export const unityActionZones: ActionZone[] = [
       "Reassess the full position and thesis. Do not automatically sell on price decline alone.",
     whyBullets: [
       "Management materially cuts guidance",
-      "Monetization weakens persistently",
+      "Monetization or advertising recovery weakens persistently",
       "Margin / FCF progress reverses",
-      "Execution risk rises materially",
+      "Major competitive deterioration in core markets",
+      "Balance-sheet or liquidity risk increases materially",
+      "Execution risk rises to the point of invalidating the recovery case",
     ],
     doNotTriggerIf: [
       "Decline is purely price-driven without fundamental deterioration",
@@ -158,17 +162,18 @@ export const unityScorecard: Scorecard = {
   momentum: { score: 7, state: "Positive" },
   thesisHealth: { score: 8, state: "Intact" },
   positionFit: { score: 3, state: "Weak" },
-  risk: { score: 4, state: "Elevated" },
+  concentrationRisk: { score: 4, state: "Elevated" },
 };
 
 export const unityThesis = {
   text: "Unity can continue its operating recovery through improved monetization, ad-tech execution, cost discipline, and stronger cash-flow generation.",
   horizon: "3–5 years",
   catalysts: [
-    "Monetization improvement across the platform",
-    "Stronger advertising technology execution",
-    "Operating margin expansion",
-    "Free cash flow generation improvement",
+    "Grow: advertising platform recovery and monetization improvement",
+    "Vector: AI-driven monetization progress and adoption",
+    "Create: engine business health and developer ecosystem",
+    "Operating margin and adjusted EBITDA expansion",
+    "Free cash flow generation improvement and cost discipline",
   ],
   risks: [
     "Execution setbacks in product development",
@@ -178,9 +183,12 @@ export const unityThesis = {
   ],
   thesisBreakers: [
     "Repeated material forward guidance cuts",
-    "Sustained deterioration in core monetization metrics",
+    "Sustained deterioration in advertising and monetization recovery",
+    "Failure of key monetization initiatives (Grow, Vector) to produce expected results",
     "Reversal in margin or free-cash-flow trajectory",
-    "Major competitive or product execution failure",
+    "Major competitive deterioration in core markets",
+    "Management execution severe enough to invalidate the recovery case",
+    "Materially increased balance-sheet or liquidity risk",
   ],
 };
 

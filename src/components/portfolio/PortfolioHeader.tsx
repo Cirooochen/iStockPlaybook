@@ -35,7 +35,7 @@ export function PortfolioHeader({ portfolio }: Props) {
           Last updated today, 16:15
         </div>
       </div>
-      <button className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-stone-700 border border-stone-300 rounded-md hover:bg-stone-50 transition-colors">
+      <button className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-stone-700 border border-stone-300 rounded-md hover:bg-stone-50 transition duration-[160ms] [transition-timing-function:var(--ease-out)] motion-safe:active:scale-[0.97]">
         <Plus className="w-4 h-4" />
         Add stock
       </button>
