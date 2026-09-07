@@ -1,4 +1,4 @@
-import type { StockSeed, Stance } from "@/types/playbook";
+import type { StockSeed, Stance, ThesisHealth } from "@/types/playbook";
 import { stanceDisplayLabel } from "@/domain/playbook/stance-rules";
 import { HelpCircle, History } from "lucide-react";
 
@@ -26,11 +26,12 @@ const thesisHealthLabel: Record<string, { label: string; className: string }> =
 interface Props {
   seed: StockSeed;
   stance: Stance;
+  thesisHealth: ThesisHealth;
 }
 
-export function PlaybookStatusBanner({ seed, stance }: Props) {
+export function PlaybookStatusBanner({ seed, stance, thesisHealth }: Props) {
   const { playbook } = seed;
-  const health = thesisHealthLabel[playbook.thesisHealth];
+  const health = thesisHealthLabel[thesisHealth];
 
   return (
     <div className="bg-white rounded-lg border border-stone-200 p-6 mb-6">

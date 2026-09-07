@@ -10,20 +10,7 @@ import type {
 
 // Domain
 import { applyBuy, applySell } from "@/domain/portfolio/accounting";
-import {
-  classifyConcentration,
-  calcTargetShares,
-  calcTacticalInventory,
-  calcTrimSizing,
-} from "@/domain/portfolio/concentration";
-import {
-  checkHC001,
-  checkHC002,
-  isAccumulationEnabled,
-} from "@/domain/playbook/hard-constraints";
-import { deriveStance } from "@/domain/playbook/stance-rules";
-import { deriveActionZoneState } from "@/domain/playbook/action-zones";
-import { recalculateScorecard } from "@/domain/playbook/scoring";
+import { runDecisionEngine } from "@/domain/engine";
 
 // Sections
 import { StockHeader } from "@/components/playbook/StockHeader";
@@ -70,47 +57,30 @@ export function PlaybookClientShell({
   const [showModal, setShowModal] = useState(false);
 
   // ── Engine pipeline — runs deterministically on every render ───────────────
+  // The shell only renders engine output; it does not orchestrate domain calls.
 
-  const concentrationState = classifyConcentration(
-    position.portfolioWeightPct,
-    strategy.mediumTermTargetMaxPct
-  );
-
-  const hc001 = checkHC001(
-    position.portfolioWeightPct,
-    strategy.shortTermMaxWeightPct
-  );
-  const hc002 = checkHC002(playbook.thesisHealth);
-  const accumulationEnabled = isAccumulationEnabled(hc001, hc002);
-  const firedConstraints = [hc001, hc002].filter((c) => c.triggered);
-
-  const derivedStance = deriveStance(concentrationState, playbook.thesisHealth);
-
-  const derivedZones: ActionZone[] = initialZones.map((zone) => ({
-    ...zone,
-    state: deriveActionZoneState(zone.type, concentrationState, accumulationEnabled),
-  }));
-
-  const derivedScorecard = recalculateScorecard(
-    initialScorecard,
-    position.portfolioWeightPct,
-    strategy.mediumTermTargetMaxPct,
-    concentrationState
-  );
-
-  const targetShares = calcTargetShares(
+  const engine = runDecisionEngine({
+    position,
     portfolioTotalEur,
-    strategy.mediumTermTargetMaxPct,
-    market.executionPriceEur
-  );
-  const sharesToTarget = Math.max(0, position.shares - targetShares);
+    executionPriceEur: market.executionPriceEur,
+    strategy,
+    thesisHealth: playbook.thesisHealth,
+    scorecard: initialScorecard,
+    actionZoneTemplates: initialZones,
+  });
 
-  const tacticalInventory = calcTacticalInventory(
-    position.shares,
-    strategy.coreSharesMax,
-    strategy.coreSharesMin
-  );
-  const trimSizing = calcTrimSizing(tacticalInventory.aboveCoreMax);
+  const {
+    concentration,
+    thesis,
+    constraints,
+    stance: derivedStance,
+    actionZones: derivedZones,
+    scorecard: derivedScorecard,
+  } = engine;
+  const { state: concentrationState, targetShares, sharesToTarget, tacticalInventory, trimSizing } =
+    concentration;
+  const thesisHealth = thesis.health;
+  const firedConstraints = constraints.fired;
 
   // ── Transaction handler ────────────────────────────────────────────────────
 
@@ -162,7 +132,7 @@ export function PlaybookClientShell({
   return (
     <>
       <StockHeader seed={seed} onAddTransaction={() => setShowModal(true)} />
-      <PlaybookStatusBanner seed={seed} stance={derivedStance} />
+      <PlaybookStatusBanner seed={seed} stance={derivedStance} thesisHealth={thesisHealth} />
       <PositionAndStrategy
         position={position}
         strategy={strategy}
@@ -192,7 +162,7 @@ export function PlaybookClientShell({
         currentPriceEur={market.executionPriceEur}
         portfolioTotalEur={portfolioTotalEur}
         trimSizing={trimSizing}
-        thesisHealth={playbook.thesisHealth}
+        thesisHealth={thesisHealth}
       />
     </>
   );
