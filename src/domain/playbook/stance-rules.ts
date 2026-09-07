@@ -19,9 +19,9 @@ export function deriveStance(
     return "REDUCE_RISK";
   }
 
-  // Priority 3 — portfolio concentration constraints
+  // Priority 3 — portfolio concentration constraints (spec §18)
   if (concentrationState === "SEVERELY_OVERWEIGHT") return "HOLD_GRADUALLY_TRIM";
-  if (concentrationState === "OVERWEIGHT") return "HOLD_GRADUALLY_TRIM";
+  if (concentrationState === "OVERWEIGHT") return "HOLD_TRIM";
   if (concentrationState === "MODERATELY_OVERWEIGHT") return "HOLD";
 
   // WITHIN_TARGET — Phase C will refine with valuation/fundamentals signals
@@ -30,6 +30,7 @@ export function deriveStance(
 
 export const stanceDisplayLabel: Record<Stance, string> = {
   HOLD_GRADUALLY_TRIM: "HOLD / GRADUALLY TRIM",
+  HOLD_TRIM: "HOLD / TRIM",
   HOLD: "HOLD",
   BUILD: "BUILD",
   ADD: "ADD",

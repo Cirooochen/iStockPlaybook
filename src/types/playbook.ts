@@ -1,5 +1,6 @@
 export type Stance =
   | "HOLD_GRADUALLY_TRIM"
+  | "HOLD_TRIM"
   | "HOLD"
   | "BUILD"
   | "ADD"

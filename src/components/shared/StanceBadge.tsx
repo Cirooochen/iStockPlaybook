@@ -8,6 +8,10 @@ const stanceConfig: Record<
     label: "HOLD / GRADUALLY TRIM",
     className: "bg-amber-50 text-amber-800 border border-amber-200",
   },
+  HOLD_TRIM: {
+    label: "HOLD / TRIM",
+    className: "bg-amber-50 text-amber-700 border border-amber-200",
+  },
   HOLD: {
     label: "HOLD",
     className: "bg-stone-100 text-stone-700 border border-stone-200",

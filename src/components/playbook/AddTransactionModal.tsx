@@ -78,6 +78,8 @@ export function AddTransactionModal({
       ? checkHC003(shares, position.shares, strategy.coreSharesMin, thesisHealth)
       : null;
 
+  const canConfirm = isValid && !hc003?.triggered;
+
   const preview = (() => {
     if (!isValid) return null;
     if (type === "BUY") {
@@ -124,7 +126,7 @@ export function AddTransactionModal({
     : 0;
 
   function handleConfirm() {
-    if (!isValid) return;
+    if (!canConfirm) return;
     onConfirm(type, shares, price);
   }
 
@@ -405,9 +407,9 @@ export function AddTransactionModal({
           </button>
           <button
             onClick={handleConfirm}
-            disabled={!isValid}
+            disabled={!canConfirm}
             className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors motion-safe:active:scale-[0.97] ${
-              isValid
+              canConfirm
                 ? type === "BUY"
                   ? "bg-teal-600 text-white hover:bg-teal-700"
                   : "bg-orange-600 text-white hover:bg-orange-700"
