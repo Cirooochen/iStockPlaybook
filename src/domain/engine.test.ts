@@ -19,9 +19,28 @@ import {
 import { deriveStance } from "@/domain/playbook/stance-rules";
 import { deriveActionZoneState } from "@/domain/playbook/action-zones";
 import { recalculateScorecard } from "@/domain/playbook/scoring";
-import { deriveThesisHealth, deriveThesisScoreItem } from "@/domain/thesis/thesis";
+import {
+  deriveThesisHealth,
+  deriveThesisScoreItem,
+  isThesisEligibleForAdd,
+} from "@/domain/thesis/thesis";
 import { deriveSignals } from "@/domain/signals/signals";
-import { applyBuy, applySell } from "@/domain/portfolio/accounting";
+import {
+  deriveMomentumEvidenceScoredItem,
+  deriveMomentumEligibility,
+  type MomentumScoreResult,
+} from "@/domain/signals/momentum-score";
+import {
+  deriveFundamentalsEvidenceScoredItem,
+  type FundamentalsScoreResult,
+} from "@/domain/signals/fundamentals-score";
+import { deriveTargetPosition, resolveCoreShareRange } from "@/domain/portfolio/target-position";
+import {
+  applyBuy,
+  applySell,
+  calcPortfolioTotalAfterBuy,
+  calcPortfolioTotalAfterSell,
+} from "@/domain/portfolio/accounting";
 import { unitySeed, unityActionZones, unityScorecard } from "@/data/unity-seed";
 import { portfolioSeed } from "@/data/portfolio-seed";
 import type { ActionZone, Position, Scorecard, Strategy, ThesisHealth } from "@/types/playbook";
@@ -53,9 +72,14 @@ function runManualPipeline(input: EngineInput): EngineOutput {
   const accumulationEnabled = isAccumulationEnabled(hc001, hc002);
   const fired = [hc001, hc002].filter((c) => c.triggered);
   const stance = deriveStance(concentrationState, thesisHealth);
+  const addEligibility = {
+    accumulationEnabled,
+    thesisEligible: isThesisEligibleForAdd(thesisHealth),
+    momentumEligible: deriveMomentumEligibility(input.momentumResult),
+  };
   const actionZones: ActionZone[] = actionZoneTemplates.map((zone) => ({
     ...zone,
-    state: deriveActionZoneState(zone.type, concentrationState, accumulationEnabled),
+    state: deriveActionZoneState(zone.type, concentrationState, addEligibility),
   }));
   const recalculated = recalculateScorecard(
     scorecard,
@@ -63,11 +87,21 @@ function runManualPipeline(input: EngineInput): EngineOutput {
     strategy.mediumTermTargetMaxPct,
     concentrationState
   );
+  const momentumEvidence = input.momentumResult
+    ? deriveMomentumEvidenceScoredItem(input.momentumResult)
+    : undefined;
+  const momentumScoreItem =
+    momentumEvidence?.status === "SCORED" ? momentumEvidence.item : signals.momentum;
+  const fundamentalsEvidence = input.fundamentalsResult
+    ? deriveFundamentalsEvidenceScoredItem(input.fundamentalsResult)
+    : undefined;
+  const fundamentalsScoreItem =
+    fundamentalsEvidence?.status === "SCORED" ? fundamentalsEvidence.item : signals.fundamentals;
   const scorecardOut: Scorecard = {
     ...recalculated,
-    fundamentals: signals.fundamentals,
+    fundamentals: fundamentalsScoreItem,
     valuation: signals.valuation,
-    momentum: signals.momentum,
+    momentum: momentumScoreItem,
     thesisHealth: deriveThesisScoreItem(thesisHealth),
   };
   const targetShares = calcTargetShares(
@@ -76,12 +110,21 @@ function runManualPipeline(input: EngineInput): EngineOutput {
     executionPriceEur
   );
   const sharesToTarget = Math.max(0, position.shares - targetShares);
-  const tacticalInventory = calcTacticalInventory(
-    position.shares,
-    strategy.coreSharesMax,
-    strategy.coreSharesMin
-  );
+  const coreShareRange = resolveCoreShareRange(strategy.coreSharesMin, strategy.coreSharesMax);
+  const tacticalInventory = coreShareRange
+    ? calcTacticalInventory(position.shares, coreShareRange.max, coreShareRange.min)
+    : { aboveCoreMax: 0, maxSellToCore: position.shares };
   const trimSizing = calcTrimSizing(tacticalInventory.aboveCoreMax);
+  const targetPosition = deriveTargetPosition({
+    currentShares: position.shares,
+    currentWeightPct: position.portfolioWeightPct,
+    portfolioTotalEur,
+    priceEur: executionPriceEur,
+    targetWeightMinPct: strategy.mediumTermTargetMinPct,
+    targetWeightMaxPct: strategy.mediumTermTargetMaxPct,
+    coreShareRange,
+    preferredTargetWeightPct: strategy.preferredTargetWeightPct,
+  });
 
   return {
     concentration: {
@@ -96,6 +139,9 @@ function runManualPipeline(input: EngineInput): EngineOutput {
     stance,
     actionZones,
     scorecard: scorecardOut,
+    targetPosition,
+    momentumResult: input.momentumResult,
+    fundamentalsResult: input.fundamentalsResult,
   };
 }
 
@@ -166,7 +212,7 @@ describe("runDecisionEngine — regression vs. the original inline pipeline", ()
       portfolioWeightPct: 20,
     };
     const newPosition = applyBuy(startPosition, { shares: 300, priceEur: 10 }, 10, 25000);
-    const newPortfolioTotal = 25000 - startPosition.valueEur + newPosition.valueEur;
+    const newPortfolioTotal = calcPortfolioTotalAfterBuy(25000);
     const input = buildInput({ position: newPosition, portfolioTotalEur: newPortfolioTotal });
 
     expect(runDecisionEngine(input)).toEqual(runManualPipeline(input));
@@ -181,7 +227,7 @@ describe("runDecisionEngine — regression vs. the original inline pipeline", ()
       portfolioWeightPct: 20,
     };
     const { position: newPosition } = applySell(startPosition, { shares: 150, priceEur: 12 }, 10, 25000);
-    const newPortfolioTotal = 25000 - startPosition.valueEur + newPosition.valueEur;
+    const newPortfolioTotal = calcPortfolioTotalAfterSell(25000);
     const input = buildInput({ position: newPosition, portfolioTotalEur: newPortfolioTotal });
 
     expect(runDecisionEngine(input)).toEqual(runManualPipeline(input));
@@ -225,7 +271,7 @@ describe("runDecisionEngine — Unity baseline output is unchanged after the reg
       portfolioWeightPct: 20,
     };
     const newPosition = applyBuy(startPosition, { shares: 100, priceEur: 10 }, 10, 25000);
-    const newPortfolioTotal = 25000 - startPosition.valueEur + newPosition.valueEur;
+    const newPortfolioTotal = calcPortfolioTotalAfterBuy(25000);
     const output = runDecisionEngine(
       buildInput({ position: newPosition, portfolioTotalEur: newPortfolioTotal })
     );
@@ -247,7 +293,7 @@ describe("runDecisionEngine — Unity baseline output is unchanged after the reg
     ).not.toBe("WITHIN_TARGET");
 
     const { position: newPosition } = applySell(startPosition, { shares: 200, priceEur: 10 }, 10, 27000);
-    const newPortfolioTotal = 27000 - startPosition.valueEur + newPosition.valueEur;
+    const newPortfolioTotal = calcPortfolioTotalAfterSell(27000);
     const output = runDecisionEngine(
       buildInput({ position: newPosition, portfolioTotalEur: newPortfolioTotal })
     );
@@ -350,6 +396,236 @@ describe("thesis health cannot diverge between engine.thesis and engine.scorecar
       expect(output.scorecard.thesisHealth).not.toEqual(staleScorecard.thesisHealth);
     }
   );
+});
+
+describe("runDecisionEngine — Phase D.1 momentum -> Scorecard integration", () => {
+  const position: Position = {
+    shares: 500,
+    averageCostEur: 10,
+    valueEur: 5000,
+    unrealizedReturnPct: 0,
+    portfolioWeightPct: 20,
+  };
+
+  const SCORED_RESULT: MomentumScoreResult = {
+    status: "SCORED",
+    overall: { score: 8, state: "Positive" },
+    components: [],
+    coverage: { totalDefinedWeight: 1, applicableWeight: 1, availableWeight: 1, missingWeight: 0, availableWeightShare: 1 },
+  };
+
+  const INSUFFICIENT_RESULT: MomentumScoreResult = {
+    status: "INSUFFICIENT_DATA",
+    components: [],
+    coverage: { totalDefinedWeight: 1, applicableWeight: 1, availableWeight: 0.1, missingWeight: 0.9, availableWeightShare: 0.1 },
+  };
+
+  it("momentumResult absent -> scorecard.momentum unchanged (today's exact pass-through), EngineOutput.momentumResult stays undefined", () => {
+    const output = runDecisionEngine(buildInput({ position }));
+    expect(output.scorecard.momentum).toEqual(baseScorecard.momentum);
+    expect(output.momentumResult).toBeUndefined();
+  });
+
+  it("momentumResult SCORED -> scorecard.momentum equals result.overall exactly", () => {
+    const output = runDecisionEngine(buildInput({ position, momentumResult: SCORED_RESULT }));
+    expect(output.scorecard.momentum).toEqual(SCORED_RESULT.overall);
+    expect(output.scorecard.momentum).not.toEqual(baseScorecard.momentum);
+  });
+
+  it("momentumResult INSUFFICIENT_DATA -> scorecard.momentum equals today's pass-through value, identical to the absent case — never fabricated", () => {
+    const output = runDecisionEngine(buildInput({ position, momentumResult: INSUFFICIENT_RESULT }));
+    expect(output.scorecard.momentum).toEqual(baseScorecard.momentum);
+  });
+
+  it("EngineOutput.momentumResult echoes EngineInput.momentumResult exactly, in every case", () => {
+    const scored = runDecisionEngine(buildInput({ position, momentumResult: SCORED_RESULT }));
+    expect(scored.momentumResult).toBe(SCORED_RESULT);
+
+    const insufficient = runDecisionEngine(buildInput({ position, momentumResult: INSUFFICIENT_RESULT }));
+    expect(insufficient.momentumResult).toBe(INSUFFICIENT_RESULT);
+
+    const absent = runDecisionEngine(buildInput({ position }));
+    expect(absent.momentumResult).toBeUndefined();
+  });
+
+  it("matches the independent manual-pipeline oracle with a SCORED momentumResult", () => {
+    const input = buildInput({ position, momentumResult: SCORED_RESULT });
+    expect(runDecisionEngine(input)).toEqual(runManualPipeline(input));
+  });
+
+  it("matches the independent manual-pipeline oracle with an INSUFFICIENT_DATA momentumResult", () => {
+    const input = buildInput({ position, momentumResult: INSUFFICIENT_RESULT });
+    expect(runDecisionEngine(input)).toEqual(runManualPipeline(input));
+  });
+});
+
+describe("runDecisionEngine — Phase E.3/E.4 fundamentals -> Scorecard integration", () => {
+  const position: Position = {
+    shares: 500,
+    averageCostEur: 10,
+    valueEur: 5000,
+    unrealizedReturnPct: 0,
+    portfolioWeightPct: 20,
+  };
+
+  const SCORED_FUNDAMENTALS: FundamentalsScoreResult = {
+    status: "SCORED",
+    overall: { score: 8, state: "Positive" },
+    components: [],
+    coverage: { totalDefinedWeight: 1, applicableWeight: 1, availableWeight: 1, missingWeight: 0, availableWeightShare: 1 },
+  };
+
+  const INSUFFICIENT_FUNDAMENTALS: FundamentalsScoreResult = {
+    status: "INSUFFICIENT_DATA",
+    components: [],
+    coverage: { totalDefinedWeight: 1, applicableWeight: 1, availableWeight: 0.1, missingWeight: 0.9, availableWeightShare: 0.1 },
+  };
+
+  it("fundamentalsResult absent -> scorecard.fundamentals unchanged (today's exact pass-through), EngineOutput.fundamentalsResult stays undefined", () => {
+    const output = runDecisionEngine(buildInput({ position }));
+    expect(output.scorecard.fundamentals).toEqual(baseScorecard.fundamentals);
+    expect(output.fundamentalsResult).toBeUndefined();
+  });
+
+  it("fundamentalsResult SCORED -> scorecard.fundamentals equals result.overall exactly", () => {
+    const output = runDecisionEngine(buildInput({ position, fundamentalsResult: SCORED_FUNDAMENTALS }));
+    expect(output.scorecard.fundamentals).toEqual(SCORED_FUNDAMENTALS.overall);
+    expect(output.scorecard.fundamentals).not.toEqual(baseScorecard.fundamentals);
+  });
+
+  it("fundamentalsResult INSUFFICIENT_DATA -> scorecard.fundamentals equals today's pass-through value, identical to the absent case — never fabricated", () => {
+    const output = runDecisionEngine(buildInput({ position, fundamentalsResult: INSUFFICIENT_FUNDAMENTALS }));
+    expect(output.scorecard.fundamentals).toEqual(baseScorecard.fundamentals);
+  });
+
+  it("EngineOutput.fundamentalsResult echoes EngineInput.fundamentalsResult exactly, in every case — the canonical evidence-status source, not scorecard.fundamentals", () => {
+    const scored = runDecisionEngine(buildInput({ position, fundamentalsResult: SCORED_FUNDAMENTALS }));
+    expect(scored.fundamentalsResult).toBe(SCORED_FUNDAMENTALS);
+
+    const insufficient = runDecisionEngine(buildInput({ position, fundamentalsResult: INSUFFICIENT_FUNDAMENTALS }));
+    expect(insufficient.fundamentalsResult).toBe(INSUFFICIENT_FUNDAMENTALS);
+
+    const absent = runDecisionEngine(buildInput({ position }));
+    expect(absent.fundamentalsResult).toBeUndefined();
+  });
+
+  it("matches the independent manual-pipeline oracle with a SCORED fundamentalsResult", () => {
+    const input = buildInput({ position, fundamentalsResult: SCORED_FUNDAMENTALS });
+    expect(runDecisionEngine(input)).toEqual(runManualPipeline(input));
+  });
+
+  it("matches the independent manual-pipeline oracle with an INSUFFICIENT_DATA fundamentalsResult", () => {
+    const input = buildInput({ position, fundamentalsResult: INSUFFICIENT_FUNDAMENTALS });
+    expect(runDecisionEngine(input)).toEqual(runManualPipeline(input));
+  });
+
+  it("does not interfere with stance, action zones, hard constraints, concentration, target position, or sizing — SCORED fundamentals changes only scorecard.fundamentals", () => {
+    const without = runDecisionEngine(buildInput({ position }));
+    const withScored = runDecisionEngine(buildInput({ position, fundamentalsResult: SCORED_FUNDAMENTALS }));
+
+    expect(withScored.stance).toBe(without.stance);
+    expect(withScored.actionZones).toEqual(without.actionZones);
+    expect(withScored.constraints).toEqual(without.constraints);
+    expect(withScored.concentration).toEqual(without.concentration);
+    expect(withScored.targetPosition).toEqual(without.targetPosition);
+    // Every other Scorecard field is untouched; only .fundamentals differs.
+    expect({ ...withScored.scorecard, fundamentals: undefined }).toEqual({ ...without.scorecard, fundamentals: undefined });
+  });
+});
+
+describe("runDecisionEngine — Phase D.5 momentum -> ADD-zone eligibility (defensive-only gate)", () => {
+  // WITHIN_TARGET (20% weight === 20% mediumTermTargetMaxPct) + INTACT thesis
+  // + accumulation enabled: with momentum absent, ADD is otherwise ACTIVE —
+  // exactly the "otherwise-eligible" scenario needed to prove the gate can
+  // only ever remove eligibility, never grant it.
+  const position: Position = {
+    shares: 500,
+    averageCostEur: 10,
+    valueEur: 5000,
+    unrealizedReturnPct: 0,
+    portfolioWeightPct: 20,
+  };
+
+  const WEAK_RESULT: MomentumScoreResult = {
+    status: "SCORED",
+    overall: { score: 2, state: "Weak" },
+    components: [],
+    coverage: { totalDefinedWeight: 1, applicableWeight: 1, availableWeight: 1, missingWeight: 0, availableWeightShare: 1 },
+  };
+
+  const NEUTRAL_RESULT: MomentumScoreResult = {
+    status: "SCORED",
+    overall: { score: 5, state: "Neutral" },
+    components: [],
+    coverage: { totalDefinedWeight: 1, applicableWeight: 1, availableWeight: 1, missingWeight: 0, availableWeightShare: 1 },
+  };
+
+  const POSITIVE_RESULT: MomentumScoreResult = {
+    status: "SCORED",
+    overall: { score: 9, state: "Positive" },
+    components: [],
+    coverage: { totalDefinedWeight: 1, applicableWeight: 1, availableWeight: 1, missingWeight: 0, availableWeightShare: 1 },
+  };
+
+  const INSUFFICIENT_RESULT: MomentumScoreResult = {
+    status: "INSUFFICIENT_DATA",
+    components: [],
+    coverage: { totalDefinedWeight: 1, applicableWeight: 1, availableWeight: 0.1, missingWeight: 0.9, availableWeightShare: 0.1 },
+  };
+
+  function addZoneState(output: EngineOutput): string | undefined {
+    return output.actionZones.find((z) => z.type === "ADD")?.state;
+  }
+
+  it("momentumResult absent -> ADD is otherwise ACTIVE (baseline for every other case in this block)", () => {
+    const output = runDecisionEngine(buildInput({ position }));
+    expect(addZoneState(output)).toBe("ACTIVE");
+  });
+
+  it("momentumResult INSUFFICIENT_DATA -> ADD unaffected, identical to absent", () => {
+    const output = runDecisionEngine(buildInput({ position, momentumResult: INSUFFICIENT_RESULT }));
+    expect(addZoneState(output)).toBe("ACTIVE");
+  });
+
+  it("momentumResult SCORED Weak -> ADD becomes INACTIVE, the only case that restricts it", () => {
+    const output = runDecisionEngine(buildInput({ position, momentumResult: WEAK_RESULT }));
+    expect(addZoneState(output)).toBe("INACTIVE");
+  });
+
+  it("momentumResult SCORED Neutral -> ADD stays ACTIVE, unaffected", () => {
+    const output = runDecisionEngine(buildInput({ position, momentumResult: NEUTRAL_RESULT }));
+    expect(addZoneState(output)).toBe("ACTIVE");
+  });
+
+  it("momentumResult SCORED Positive -> ADD stays ACTIVE — positive momentum is never required to grant it, it was already ACTIVE without momentum", () => {
+    const output = runDecisionEngine(buildInput({ position, momentumResult: POSITIVE_RESULT }));
+    expect(addZoneState(output)).toBe("ACTIVE");
+  });
+
+  it("proves momentum can only REMOVE ADD eligibility, never grant it: SCORED Positive does not rescue an ADD zone that HC-001/thesis would otherwise disable", () => {
+    const overweightPosition: Position = { ...position, portfolioWeightPct: 35 }; // > shortTermMaxWeightPct (30) -> HC-001 triggers
+    const withoutMomentum = runDecisionEngine(buildInput({ position: overweightPosition }));
+    const withPositiveMomentum = runDecisionEngine(
+      buildInput({ position: overweightPosition, momentumResult: POSITIVE_RESULT })
+    );
+    expect(addZoneState(withoutMomentum)).toBe("INACTIVE");
+    expect(addZoneState(withPositiveMomentum)).toBe("INACTIVE");
+  });
+
+  it("stance, trim zones, sizing, and concentration are all unaffected by momentum in every case above", () => {
+    const withoutMomentum = runDecisionEngine(buildInput({ position }));
+    const withWeakMomentum = runDecisionEngine(buildInput({ position, momentumResult: WEAK_RESULT }));
+    expect(withWeakMomentum.stance).toBe(withoutMomentum.stance);
+    expect(withWeakMomentum.concentration).toEqual(withoutMomentum.concentration);
+    expect(withWeakMomentum.actionZones.filter((z) => z.type !== "ADD")).toEqual(
+      withoutMomentum.actionZones.filter((z) => z.type !== "ADD")
+    );
+  });
+
+  it("matches the independent manual-pipeline oracle with a SCORED Weak momentumResult", () => {
+    const input = buildInput({ position, momentumResult: WEAK_RESULT });
+    expect(runDecisionEngine(input)).toEqual(runManualPipeline(input));
+  });
 });
 
 describe("PlaybookSnapshot", () => {

@@ -24,3 +24,21 @@ const THESIS_SCORE_MAP: Record<ThesisHealth, ScoreItem> = {
 export function deriveThesisScoreItem(health: ThesisHealth): ScoreItem {
   return THESIS_SCORE_MAP[health];
 }
+
+// Spec §22 (Add Logic) thesis-eligibility clause — v0.1 decision (B.5.5,
+// 2026-09-09): STRENGTHENING and INTACT are ADD-eligible; MIXED, WEAKENING,
+// and BROKEN are not. MIXED and WEAKENING deliberately share this outcome
+// for v0.1 — their semantic distinction remains in ThesisHealth/scorecard
+// and gains weight once Phase C/D evidence and fundamental logic exist.
+// BROKEN is also independently blocked via HC-002/accumulationEnabled; this
+// predicate does not special-case it. The other two §22 clauses
+// (fundamental_score >= 60, valuation_score >= 60) are Phase C scope and
+// are not evaluated here.
+const ADD_ELIGIBLE_THESIS_STATES: ReadonlySet<ThesisHealth> = new Set([
+  "STRENGTHENING",
+  "INTACT",
+]);
+
+export function isThesisEligibleForAdd(health: ThesisHealth): boolean {
+  return ADD_ELIGIBLE_THESIS_STATES.has(health);
+}

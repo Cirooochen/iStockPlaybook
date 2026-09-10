@@ -10,7 +10,12 @@ import {
   concentrationStyle,
   calcTargetShares,
 } from "@/domain/portfolio/concentration";
-import { previewBuy, previewSell } from "@/domain/portfolio/accounting";
+import {
+  previewBuy,
+  previewSell,
+  calcPortfolioTotalAfterBuy,
+  calcPortfolioTotalAfterSell,
+} from "@/domain/portfolio/accounting";
 import { checkHC003 } from "@/domain/playbook/hard-constraints";
 
 type TransactionType = "BUY" | "SELL";
@@ -73,8 +78,9 @@ export function AddTransactionModal({
   const oversell = type === "SELL" && shares > position.shares;
   const isValid = price > 0 && shares > 0 && !oversell;
 
+  // HC-003 protects the core minimum — meaningless without a core range.
   const hc003 =
-    type === "SELL" && shares > 0 && !oversell
+    type === "SELL" && shares > 0 && !oversell && strategy.coreSharesMin !== undefined
       ? checkHC003(shares, position.shares, strategy.coreSharesMin, thesisHealth)
       : null;
 
@@ -109,7 +115,9 @@ export function AddTransactionModal({
       : null;
 
   const previewNewPortfolioTotal = preview
-    ? portfolioTotalEur - position.valueEur + preview.position.valueEur
+    ? type === "BUY"
+      ? calcPortfolioTotalAfterBuy(portfolioTotalEur)
+      : calcPortfolioTotalAfterSell(portfolioTotalEur)
     : null;
 
   const previewTargetShares =

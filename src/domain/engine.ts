@@ -20,6 +20,11 @@ import {
   type TrimSizing,
 } from "@/domain/portfolio/concentration";
 import {
+  deriveTargetPosition,
+  resolveCoreShareRange,
+  type TargetPositionResult,
+} from "@/domain/portfolio/target-position";
+import {
   checkHC001,
   checkHC002,
   isAccumulationEnabled,
@@ -28,8 +33,28 @@ import {
 import { deriveStance } from "@/domain/playbook/stance-rules";
 import { deriveActionZoneState } from "@/domain/playbook/action-zones";
 import { recalculateScorecard } from "@/domain/playbook/scoring";
-import { deriveThesisHealth, deriveThesisScoreItem } from "@/domain/thesis/thesis";
+import {
+  deriveThesisHealth,
+  deriveThesisScoreItem,
+  isThesisEligibleForAdd,
+} from "@/domain/thesis/thesis";
 import { deriveSignals } from "@/domain/signals/signals";
+import {
+  deriveMomentumEvidenceScoredItem,
+  deriveMomentumEligibility,
+  type MomentumScoreResult,
+} from "@/domain/signals/momentum-score";
+import {
+  deriveFundamentalsEvidenceScoredItem,
+  type FundamentalsScoreResult,
+} from "@/domain/signals/fundamentals-score";
+// Re-exported so PlaybookClientShell (and other engine callers) can type
+// their own momentumResult/fundamentalsResult prop/argument without
+// importing @/domain/signals/momentum-score or
+// @/domain/signals/fundamentals-score directly — keeps "the shell only
+// imports @/domain/engine" true in spirit, not just by the letter of the
+// orchestration guardrail (src/components/playbook/PlaybookClientShell.orchestration.test.ts).
+export type { MomentumScoreResult, FundamentalsScoreResult };
 
 export interface EngineInput {
   position: Position;
@@ -40,6 +65,27 @@ export interface EngineInput {
   thesisHealth: ThesisHealth;
   scorecard: Scorecard;
   actionZoneTemplates: ActionZone[];
+  /**
+   * Pre-computed momentum evidence (Twelve Data -> C.8A mappers ->
+   * derived signals -> scoreMomentum, all run by the caller BEFORE
+   * invoking the engine — see
+   * docs/phase-d0-momentum-scorecard-integration-design.md §2.1). The
+   * engine never computes this itself and stays market-data-free.
+   * Optional: every existing caller that has no live momentum data yet
+   * gets byte-for-byte unchanged behavior when this is omitted.
+   */
+  momentumResult?: MomentumScoreResult;
+  /**
+   * Pre-computed fundamentals evidence (a raw-data pipeline ->
+   * GROWTH_SOFTWARE_TEMPLATE -> scoreFundamentals, all run by the
+   * caller BEFORE invoking the engine — see
+   * docs/phase-e3-fundamentals-scorecard-integration-design.md §1.2).
+   * The engine never computes this itself and stays market-data-free,
+   * mirroring momentumResult exactly. Optional: every existing caller
+   * that has no live fundamentals data yet gets byte-for-byte unchanged
+   * behavior when this is omitted.
+   */
+  fundamentalsResult?: FundamentalsScoreResult;
 }
 
 export interface ConcentrationView {
@@ -68,6 +114,35 @@ export interface EngineOutput {
   stance: Stance;
   actionZones: ActionZone[];
   scorecard: Scorecard;
+  /**
+   * Target Position & Sizing Model (spec §21A) — capacity, not a
+   * recommendation. Complements `concentration`, does not replace it: this
+   * classifies position size relative to the target weight range (and, when
+   * aligned, the core range together), separate from ConcentrationState's
+   * overweight-severity classification which drives stance.
+   */
+  targetPosition: TargetPositionResult;
+  /**
+   * Echoes EngineInput.momentumResult verbatim (same pass-through
+   * pattern as `thesis.health`) — the canonical, full-fidelity source
+   * for momentum evidence/coverage (component breakdown, applicable/
+   * available/missing weight). `scorecard.momentum` is a lossy summary
+   * derived from this when SCORED; this field is where the full picture
+   * — including WHY a score might be INSUFFICIENT_DATA — lives. See
+   * docs/phase-d0-momentum-scorecard-integration-design.md §2.2/§6.
+   */
+  momentumResult?: MomentumScoreResult;
+  /**
+   * Echoes EngineInput.fundamentalsResult verbatim (same pass-through
+   * pattern as momentumResult/thesis.health) — the canonical,
+   * full-fidelity source for fundamentals evidence/coverage.
+   * `scorecard.fundamentals` is a lossy summary derived from this when
+   * SCORED; this field is where the full picture — including WHY a
+   * score might be INSUFFICIENT_DATA — lives. `scorecard.fundamentals`
+   * is NOT the canonical evidence-status source; this field is. See
+   * docs/phase-e3-fundamentals-scorecard-integration-design.md §1.5.
+   */
+  fundamentalsResult?: FundamentalsScoreResult;
 }
 
 // Wraps engine output with the mutable inputs it was computed from — for
@@ -114,9 +189,16 @@ export function runDecisionEngine(input: EngineInput): EngineOutput {
   const stance = deriveStance(concentrationState, thesisHealth);
 
   // Action
+  const addEligibility = {
+    accumulationEnabled,
+    thesisEligible: isThesisEligibleForAdd(thesisHealth),
+    // Phase D.5 — defensive-only timing gate, see AddEligibility's doc
+    // comment / docs/phase-d4-momentum-decision-influence-design.md §8.
+    momentumEligible: deriveMomentumEligibility(input.momentumResult),
+  };
   const actionZones: ActionZone[] = actionZoneTemplates.map((zone) => ({
     ...zone,
-    state: deriveActionZoneState(zone.type, concentrationState, accumulationEnabled),
+    state: deriveActionZoneState(zone.type, concentrationState, addEligibility),
   }));
 
   const recalculatedScorecard = recalculateScorecard(
@@ -125,11 +207,44 @@ export function runDecisionEngine(input: EngineInput): EngineOutput {
     strategy.mediumTermTargetMaxPct,
     concentrationState
   );
+
+  // Momentum — Phase D.0/D.1 integration. deriveMomentumEvidenceScoredItem
+  // never fabricates a score for INSUFFICIENT_DATA; the transitional
+  // handling below is what decides what the LEGACY ScoreItem-shaped
+  // scorecard.momentum shows in that case (docs/phase-d0-momentum-
+  // scorecard-integration-design.md §6): when there is no SCORED result —
+  // either momentumResult was never supplied, or it was supplied and came
+  // back INSUFFICIENT_DATA — the field is simply left at today's existing
+  // pass-through value, never actively re-encoded as a stale-but-fresh
+  // -looking score. The canonical distinction always remains available on
+  // the returned momentumResult below, never lost.
+  const momentumEvidence = input.momentumResult
+    ? deriveMomentumEvidenceScoredItem(input.momentumResult)
+    : undefined;
+  const momentumScoreItem =
+    momentumEvidence?.status === "SCORED" ? momentumEvidence.item : signals.momentum;
+
+  // Fundamentals — Phase E.3/E.4 integration, exact mirror of the
+  // momentum block above. deriveFundamentalsEvidenceScoredItem never
+  // fabricates a score for INSUFFICIENT_DATA; when there is no SCORED
+  // result — either fundamentalsResult was never supplied, or it was
+  // supplied and came back INSUFFICIENT_DATA — scorecard.fundamentals
+  // simply stays at today's existing pass-through value, never actively
+  // re-encoded as a stale-but-fresh-looking score. The canonical
+  // distinction always remains available on the returned
+  // fundamentalsResult below (docs/phase-e3-fundamentals-scorecard-
+  // integration-design.md §1.3/§1.4/§1.5).
+  const fundamentalsEvidence = input.fundamentalsResult
+    ? deriveFundamentalsEvidenceScoredItem(input.fundamentalsResult)
+    : undefined;
+  const fundamentalsScoreItem =
+    fundamentalsEvidence?.status === "SCORED" ? fundamentalsEvidence.item : signals.fundamentals;
+
   const finalScorecard: Scorecard = {
     ...recalculatedScorecard,
-    fundamentals: signals.fundamentals,
+    fundamentals: fundamentalsScoreItem,
     valuation: signals.valuation,
-    momentum: signals.momentum,
+    momentum: momentumScoreItem,
     // Derived from the canonical thesisHealth above — never independently
     // seeded, so it cannot drift out of sync with thesis.health.
     thesisHealth: deriveThesisScoreItem(thesisHealth),
@@ -142,12 +257,30 @@ export function runDecisionEngine(input: EngineInput): EngineOutput {
   );
   const sharesToTarget = Math.max(0, position.shares - targetShares);
 
-  const tacticalInventory = calcTacticalInventory(
-    position.shares,
-    strategy.coreSharesMax,
-    strategy.coreSharesMin
-  );
+  // Old §21 trim-sizing pipeline is core-range-specific and untouched
+  // (staging logic not refactored per B.5.1 Resolution prerequisite #3).
+  // With no core range configured, there is no core-based tactical
+  // inventory to report — zeroed rather than invented.
+  const coreShareRange = resolveCoreShareRange(strategy.coreSharesMin, strategy.coreSharesMax);
+  const tacticalInventory = coreShareRange
+    ? calcTacticalInventory(position.shares, coreShareRange.max, coreShareRange.min)
+    : { aboveCoreMax: 0, maxSellToCore: position.shares };
   const trimSizing = calcTrimSizing(tacticalInventory.aboveCoreMax);
+
+  // Target Position & Sizing — spec §21A. A separate, generic model from
+  // the concentration/trimSizing pipeline above; not yet consumed by it.
+  // See the B.5.1 Resolution report for the overlap this creates with
+  // concentration.trimSizing.
+  const targetPosition = deriveTargetPosition({
+    currentShares: position.shares,
+    currentWeightPct: position.portfolioWeightPct,
+    portfolioTotalEur,
+    priceEur: executionPriceEur,
+    targetWeightMinPct: strategy.mediumTermTargetMinPct,
+    targetWeightMaxPct: strategy.mediumTermTargetMaxPct,
+    coreShareRange,
+    preferredTargetWeightPct: strategy.preferredTargetWeightPct,
+  });
 
   return {
     concentration: {
@@ -162,5 +295,8 @@ export function runDecisionEngine(input: EngineInput): EngineOutput {
     stance,
     actionZones,
     scorecard: finalScorecard,
+    targetPosition,
+    momentumResult: input.momentumResult,
+    fundamentalsResult: input.fundamentalsResult,
   };
 }

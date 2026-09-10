@@ -37,6 +37,11 @@ export const unitySeed: StockSeed = {
     coreSharesMax: 650,
     tacticalSharesMin: 250,
     tacticalSharesMax: 300,
+    // Spec §14 Relative Strength benchmark (docs/phase-c5-trend-relative-
+    // strength-data-contract.md §4) — a broad US market ETF, provided as
+    // config data, never hardcoded inside domain logic
+    // (computeRelativeStrength takes this as a parameter). Phase C.8B.
+    benchmarkInstrumentId: "SPY",
   },
   playbook: {
     stance: "HOLD_GRADUALLY_TRIM",

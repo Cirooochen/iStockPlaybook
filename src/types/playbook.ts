@@ -83,10 +83,26 @@ export interface Strategy {
   shortTermMaxWeightPct: number;
   mediumTermTargetMinPct: number;
   mediumTermTargetMaxPct: number;
-  coreSharesMin: number;
-  coreSharesMax: number;
+  // Optional as a pair — spec §21A: both present = a core-share strategy,
+  // both absent = a weight-target-only strategy. Providing only one is an
+  // invalid configuration, rejected by resolveCoreShareRange
+  // (src/domain/portfolio/target-position.ts), not silently coerced here.
+  coreSharesMin?: number;
+  coreSharesMax?: number;
   tacticalSharesMin: number;
   tacticalSharesMax: number;
+  // Optional explicit preferred position size within the target weight
+  // range, spec §21A. Used only when no core range is configured — see
+  // deriveTargetPosition's no-core preferred-target behavior.
+  preferredTargetWeightPct?: number;
+  // Optional benchmark for spec §14's Relative Strength dimension
+  // (docs/phase-c5-trend-relative-strength-data-contract.md §4) — a
+  // provider-agnostic identifier (never a hardcoded symbol), same
+  // convention as RawMarketData.instrumentId. Absent means Relative
+  // Strength is structurally NOT_APPLICABLE for this strategy, not
+  // MISSING — see computeRelativeStrength
+  // (src/domain/signals/relative-strength.ts).
+  benchmarkInstrumentId?: string;
 }
 
 export interface Playbook {

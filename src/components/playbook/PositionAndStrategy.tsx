@@ -127,7 +127,9 @@ export function PositionAndStrategy({
           <div>
             <p className="text-xs text-stone-400 mb-1">Long-term core</p>
             <p className="text-sm font-semibold text-stone-700">
-              {strategy.coreSharesMin}–{strategy.coreSharesMax} shares
+              {strategy.coreSharesMin !== undefined && strategy.coreSharesMax !== undefined
+                ? `${strategy.coreSharesMin}–${strategy.coreSharesMax} shares`
+                : "Not configured"}
             </p>
           </div>
           <div>

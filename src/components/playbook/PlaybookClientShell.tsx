@@ -9,8 +9,13 @@ import type {
 } from "@/types/playbook";
 
 // Domain
-import { applyBuy, applySell } from "@/domain/portfolio/accounting";
-import { runDecisionEngine } from "@/domain/engine";
+import {
+  applyBuy,
+  applySell,
+  calcPortfolioTotalAfterBuy,
+  calcPortfolioTotalAfterSell,
+} from "@/domain/portfolio/accounting";
+import { runDecisionEngine, type MomentumScoreResult } from "@/domain/engine";
 
 // Sections
 import { StockHeader } from "@/components/playbook/StockHeader";
@@ -31,6 +36,15 @@ interface Props {
   initialScorecard: Scorecard;
   initialTimeline: TimelineEntry[];
   initialPortfolioTotalEur: number;
+  /**
+   * Live momentum evidence, fetched once server-side per page load
+   * (src/app/stocks/[ticker]/page.tsx) — undefined when no live data was
+   * fetched or the fetch failed, which runDecisionEngine already treats
+   * identically to "no live data available" (Phase D.0/D.1). Not
+   * re-fetched on client-side re-renders, same as the other `initial*`
+   * props.
+   */
+  initialMomentumResult?: MomentumScoreResult;
 }
 
 function formatDate(d: Date): string {
@@ -47,6 +61,7 @@ export function PlaybookClientShell({
   initialScorecard,
   initialTimeline,
   initialPortfolioTotalEur,
+  initialMomentumResult,
 }: Props) {
   const { market, strategy, playbook } = seed;
 
@@ -67,6 +82,7 @@ export function PlaybookClientShell({
     thesisHealth: playbook.thesisHealth,
     scorecard: initialScorecard,
     actionZoneTemplates: initialZones,
+    momentumResult: initialMomentumResult,
   });
 
   const {
@@ -104,7 +120,8 @@ export function PlaybookClientShell({
         summary: `BUY — ${shares} shares @ €${priceEur.toFixed(2)}`,
         detail: `Avg cost €${newPos.averageCostEur.toFixed(2)} · Weight: ${newPos.portfolioWeightPct.toFixed(1)}%`,
       };
-      setPortfolioTotalEur((prev) => prev - position.valueEur + newPos.valueEur);
+      // Cash → Security — funded from existing portfolio cash, total unchanged.
+      setPortfolioTotalEur((prev) => calcPortfolioTotalAfterBuy(prev));
       setPosition(newPos);
       setTimeline((prev) => [entry, ...prev]);
     } else {
@@ -121,7 +138,8 @@ export function PlaybookClientShell({
         summary: `SELL — ${shares} shares @ €${priceEur.toFixed(2)}`,
         detail: `Realized: ${sign}€${Math.abs(realizedGainEur).toFixed(0)} (${sign}${realizedGainPct.toFixed(1)}%) · Weight: ${newPos.portfolioWeightPct.toFixed(1)}%`,
       };
-      setPortfolioTotalEur((prev) => prev - position.valueEur + newPos.valueEur);
+      // Sale proceeds become cash — still part of the tracked portfolio total.
+      setPortfolioTotalEur((prev) => calcPortfolioTotalAfterSell(prev));
       setPosition(newPos);
       setTimeline((prev) => [entry, ...prev]);
     }

@@ -36,7 +36,10 @@ export function checkHC002(thesisHealth: ThesisHealth): HardConstraintResult {
   };
 }
 
-// HC-003: tactical sell cannot breach core_min unless thesis is deteriorating
+// HC-003: tactical sell cannot breach core_min unless the thesis
+// supporting the core commitment is BROKEN. WEAKENING keeps core
+// protection active — the thesis is under concern but not yet
+// invalidated, so the long-term core commitment still stands.
 export function checkHC003(
   soldShares: number,
   currentShares: number,
@@ -45,9 +48,8 @@ export function checkHC003(
 ): HardConstraintResult {
   const remaining = currentShares - soldShares;
   const wouldBreachCore = remaining < coreMin;
-  const thesisDeteriorating =
-    thesisHealth === "WEAKENING" || thesisHealth === "BROKEN";
-  const triggered = wouldBreachCore && !thesisDeteriorating;
+  const thesisInvalidated = thesisHealth === "BROKEN";
+  const triggered = wouldBreachCore && !thesisInvalidated;
   return {
     code: "HC-003",
     triggered,
