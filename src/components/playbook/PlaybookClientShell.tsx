@@ -15,20 +15,21 @@ import {
   calcPortfolioTotalAfterBuy,
   calcPortfolioTotalAfterSell,
 } from "@/domain/portfolio/accounting";
-import { runDecisionEngine, type MomentumScoreResult } from "@/domain/engine";
+import { runDecisionEngine, type MomentumScoreResult, type FundamentalsScoreResult } from "@/domain/engine";
 
 // Sections
 import { StockHeader } from "@/components/playbook/StockHeader";
 import { PlaybookStatusBanner } from "@/components/playbook/PlaybookStatusBanner";
+import { PrimaryActionCard } from "@/components/playbook/PrimaryActionCard";
 import { PositionAndStrategy } from "@/components/playbook/PositionAndStrategy";
 import { ActionZoneSection } from "@/components/playbook/ActionZoneSection";
-import { WhyThisStance } from "@/components/playbook/WhyThisStance";
 import { SignalScorecard } from "@/components/playbook/SignalScorecard";
 import { ThesisCard } from "@/components/playbook/ThesisCard";
 import { WhatChangesMyView } from "@/components/playbook/WhatChangesMyView";
 import { ResearchPreview } from "@/components/playbook/ResearchPreview";
 import { TimelinePreview } from "@/components/playbook/TimelinePreview";
 import { AddTransactionModal } from "@/components/playbook/AddTransactionModal";
+import { pickPrimaryZone } from "@/components/playbook/pickPrimaryZone";
 
 interface Props {
   seed: StockSeed;
@@ -45,6 +46,15 @@ interface Props {
    * props.
    */
   initialMomentumResult?: MomentumScoreResult;
+  /**
+   * Live fundamentals evidence, fetched once server-side per page load
+   * (src/app/stocks/[ticker]/page.tsx) — undefined when no live data was
+   * fetched or the fetch failed, which runDecisionEngine already treats
+   * identically to "no live data available" (Phase E.3/E.4, mirroring
+   * momentumResult exactly). Not re-fetched on client-side re-renders,
+   * same as the other `initial*` props.
+   */
+  initialFundamentalsResult?: FundamentalsScoreResult;
 }
 
 function formatDate(d: Date): string {
@@ -62,6 +72,7 @@ export function PlaybookClientShell({
   initialTimeline,
   initialPortfolioTotalEur,
   initialMomentumResult,
+  initialFundamentalsResult,
 }: Props) {
   const { market, strategy, playbook } = seed;
 
@@ -70,6 +81,7 @@ export function PlaybookClientShell({
   const [portfolioTotalEur, setPortfolioTotalEur] = useState(initialPortfolioTotalEur);
   const [timeline, setTimeline] = useState<TimelineEntry[]>(initialTimeline);
   const [showModal, setShowModal] = useState(false);
+  const [suggestedZone, setSuggestedZone] = useState<ActionZone | undefined>(undefined);
 
   // ── Engine pipeline — runs deterministically on every render ───────────────
   // The shell only renders engine output; it does not orchestrate domain calls.
@@ -83,6 +95,7 @@ export function PlaybookClientShell({
     scorecard: initialScorecard,
     actionZoneTemplates: initialZones,
     momentumResult: initialMomentumResult,
+    fundamentalsResult: initialFundamentalsResult,
   });
 
   const {
@@ -92,11 +105,13 @@ export function PlaybookClientShell({
     stance: derivedStance,
     actionZones: derivedZones,
     scorecard: derivedScorecard,
+    targetPosition,
   } = engine;
   const { state: concentrationState, targetShares, sharesToTarget, tacticalInventory, trimSizing } =
     concentration;
   const thesisHealth = thesis.health;
   const firedConstraints = constraints.fired;
+  const primaryZone = pickPrimaryZone(derivedZones);
 
   // ── Transaction handler ────────────────────────────────────────────────────
 
@@ -149,8 +164,24 @@ export function PlaybookClientShell({
 
   return (
     <>
-      <StockHeader seed={seed} onAddTransaction={() => setShowModal(true)} />
+      <StockHeader
+        seed={seed}
+        position={position}
+        onAddTransaction={() => {
+          setSuggestedZone(undefined);
+          setShowModal(true);
+        }}
+      />
       <PlaybookStatusBanner seed={seed} stance={derivedStance} thesisHealth={thesisHealth} />
+      <PrimaryActionCard
+        zone={primaryZone}
+        currentShares={position.shares}
+        recommendedShares={targetPosition.preferredTargetShares}
+        onAct={() => {
+          setSuggestedZone(primaryZone);
+          setShowModal(true);
+        }}
+      />
       <PositionAndStrategy
         position={position}
         strategy={strategy}
@@ -164,8 +195,11 @@ export function PlaybookClientShell({
         trimSizing={trimSizing}
         firedConstraints={firedConstraints}
       />
-      <WhyThisStance />
-      <SignalScorecard scorecard={derivedScorecard} />
+      <SignalScorecard
+        scorecard={derivedScorecard}
+        momentumResult={engine.momentumResult}
+        fundamentalsResult={engine.fundamentalsResult}
+      />
       <ThesisCard />
       <WhatChangesMyView />
       <ResearchPreview />
@@ -181,6 +215,7 @@ export function PlaybookClientShell({
         portfolioTotalEur={portfolioTotalEur}
         trimSizing={trimSizing}
         thesisHealth={thesisHealth}
+        suggestedZone={suggestedZone}
       />
     </>
   );

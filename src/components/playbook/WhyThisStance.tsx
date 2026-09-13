@@ -1,18 +1,24 @@
 import { whyThisStance } from "@/data/unity-seed";
-import { ExternalLink } from "lucide-react";
+import { formatPct } from "@/lib/format";
 
-export function WhyThisStance() {
+interface Props {
+  // Live position return — the canonical source (PositionAndStrategy
+  // renders the same value via the same formatPct helper). Never a
+  // second, static copy of this number (Phase F.1A).
+  unrealizedReturnPct: number;
+}
+
+export function WhyThisStance({ unrealizedReturnPct }: Props) {
+  const supporting = [
+    ...whyThisStance.supporting,
+    `Position is meaningfully profitable (${formatPct(unrealizedReturnPct)})`,
+  ];
+
   return (
     <div className="bg-white rounded-lg border border-stone-200 p-6 mb-6">
-      <div className="flex items-center justify-between mb-5">
-        <h2 className="text-sm font-semibold text-stone-700">
-          Why this stance?
-        </h2>
-        <button className="flex items-center gap-1 text-xs text-stone-400 hover:text-stone-700 transition-colors">
-          <ExternalLink className="w-3 h-3" />
-          See evidence
-        </button>
-      </div>
+      <h2 className="text-sm font-semibold text-stone-700 mb-5">
+        Why this stance?
+      </h2>
 
       <div className="grid grid-cols-2 gap-6">
         {/* Supporting */}
@@ -21,7 +27,7 @@ export function WhyThisStance() {
             Supporting
           </p>
           <ul className="space-y-2">
-            {whyThisStance.supporting.map((item, i) => (
+            {supporting.map((item, i) => (
               <li key={i} className="flex items-start gap-2 text-sm text-stone-700">
                 <span className="text-teal-500 mt-0.5 font-medium">+</span>
                 {item}

@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { X } from "lucide-react";
-import type { Position, Strategy, ThesisHealth } from "@/types/playbook";
+import type { ActionZone, Position, Strategy, ThesisHealth } from "@/types/playbook";
 import type { TrimSizing } from "@/domain/portfolio/concentration";
+import { actionZoneIcon } from "./playbookIcons";
 import {
   classifyConcentration,
   concentrationLabel,
@@ -31,6 +32,22 @@ interface Props {
   portfolioTotalEur: number;
   trimSizing: TrimSizing;
   thesisHealth: ThesisHealth;
+  /**
+   * The zone "Act on this" was opened from (PrimaryActionCard), if any —
+   * shown as a small suggestion banner and used to prefill the form.
+   * Never assumed to be what the user actually did (Playbook Interface
+   * Principles §9): it only seeds the inputs below, which the user is
+   * always free to change before confirming.
+   */
+  suggestedZone?: ActionZone;
+}
+
+// Extracts the lower bound of a "50–100" / "75-125" style range for a
+// sensible starting prefill — a plain string parse, not a new sizing
+// rule (the actual suggested range stays visible in the banner text).
+function firstShareCount(suggestedShares: string | undefined): string {
+  const match = suggestedShares?.match(/\d+/);
+  return match ? match[0] : "";
 }
 
 export function AddTransactionModal({
@@ -43,6 +60,7 @@ export function AddTransactionModal({
   portfolioTotalEur,
   trimSizing,
   thesisHealth,
+  suggestedZone,
 }: Props) {
   const [type, setType] = useState<TransactionType>("BUY");
   const [mode, setMode] = useState<InputMode>("BY_SHARES");
@@ -52,13 +70,13 @@ export function AddTransactionModal({
 
   useEffect(() => {
     if (isOpen) {
-      setType("BUY");
+      setType(suggestedZone?.type === "ADD" ? "BUY" : suggestedZone?.suggestedShares ? "SELL" : "BUY");
       setMode("BY_SHARES");
-      setSharesInput("");
+      setSharesInput(firstShareCount(suggestedZone?.suggestedShares));
       setAmountInput("");
       setPriceInput(currentPriceEur.toFixed(2));
     }
-  }, [isOpen, currentPriceEur]);
+  }, [isOpen, currentPriceEur, suggestedZone]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -184,6 +202,19 @@ export function AddTransactionModal({
         </div>
 
         <div className="px-6 py-5 space-y-4 max-h-[80vh] overflow-y-auto">
+          {suggestedZone && (
+            <div className="flex items-center gap-2.5 bg-teal-50 border border-teal-100 rounded-lg px-4 py-3">
+              {(() => {
+                const Icon = actionZoneIcon[suggestedZone.type];
+                return <Icon className="w-4 h-4 text-teal-700 shrink-0" aria-hidden="true" />;
+              })()}
+              <p className="text-xs text-teal-800">
+                Suggested: {suggestedZone.suggestedShares ? `${suggestedZone.suggestedShares} shares` : "no specific size"} —{" "}
+                <span className="font-medium">{suggestedZone.title}</span>. Record what you actually do below.
+              </p>
+            </div>
+          )}
+
           {/* BUY / SELL */}
           <div className="flex rounded-lg border border-stone-200 p-0.5 bg-stone-50">
             {(["BUY", "SELL"] as TransactionType[]).map((t) => (
@@ -315,7 +346,7 @@ export function AddTransactionModal({
           {hc003?.triggered && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
               <p className="text-[11px] font-medium text-amber-600 uppercase tracking-widest mb-1">
-                HC-003 — Core position constraint
+                Core position constraint
               </p>
               <p className="text-xs text-amber-700 leading-relaxed">
                 {hc003.description}

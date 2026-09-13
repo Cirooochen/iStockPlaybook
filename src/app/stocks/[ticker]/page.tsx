@@ -8,6 +8,7 @@ import {
 import { portfolioSeed } from "@/data/portfolio-seed";
 import { PlaybookClientShell } from "@/components/playbook/PlaybookClientShell";
 import { fetchLiveMomentumResult } from "@/infrastructure/market-data/twelve-data/orchestration";
+import { fetchLiveFundamentalsResult } from "@/infrastructure/market-data/sec-edgar/orchestration";
 
 export default async function StockPlaybookPage({
   params,
@@ -20,15 +21,17 @@ export default async function StockPlaybookPage({
 
   // Server-only (this file has no "use client" directive — see
   // docs/phase-d2-live-momentum-engine-orchestration-design.md §1):
-  // TWELVE_DATA_API_KEY never reaches PlaybookClientShell's browser
-  // bundle. Never throws — resolves to undefined on any failure, which
+  // TWELVE_DATA_API_KEY/SEC_EDGAR_USER_AGENT never reach
+  // PlaybookClientShell's browser bundle. Neither call ever throws —
+  // each resolves to undefined on any failure, which
   // PlaybookClientShell/runDecisionEngine already treat identically to
-  // "no live data available" (Phase D.0/D.1's existing fallback).
-  const initialMomentumResult = await fetchLiveMomentumResult(
-    unitySeed.security.ticker,
-    unitySeed.strategy.benchmarkInstrumentId,
-    new Date().toISOString()
-  );
+  // "no live data available" (Phase D.0/D.1's existing fallback,
+  // extended to Fundamentals by Phase E.3/E.4/E.8).
+  const checkedAt = new Date().toISOString();
+  const [initialMomentumResult, initialFundamentalsResult] = await Promise.all([
+    fetchLiveMomentumResult(unitySeed.security.ticker, unitySeed.strategy.benchmarkInstrumentId, checkedAt),
+    fetchLiveFundamentalsResult(unitySeed.security.ticker, checkedAt),
+  ]);
 
   return (
     <PlaybookClientShell
@@ -38,6 +41,7 @@ export default async function StockPlaybookPage({
       initialTimeline={unityTimeline}
       initialPortfolioTotalEur={portfolioSeed.totalValueEur}
       initialMomentumResult={initialMomentumResult}
+      initialFundamentalsResult={initialFundamentalsResult}
     />
   );
 }

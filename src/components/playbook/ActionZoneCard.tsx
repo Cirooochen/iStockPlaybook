@@ -3,6 +3,7 @@
 import type { ActionZone } from "@/types/playbook";
 import { ChevronRight } from "lucide-react";
 import { zoneConfig, stateLabel } from "./actionZoneConfig";
+import { actionZoneIcon, zoneStateIcon } from "./playbookIcons";
 
 interface Props {
   zone: ActionZone;
@@ -13,6 +14,8 @@ interface Props {
 export function ActionZoneCard({ zone, isSelected, onClick }: Props) {
   const config = zoneConfig[zone.type];
   const stateClass = config.stateStyle[zone.state];
+  const ActionIcon = actionZoneIcon[zone.type];
+  const StateIcon = zoneStateIcon[zone.state];
 
   return (
     <button
@@ -27,8 +30,9 @@ export function ActionZoneCard({ zone, isSelected, onClick }: Props) {
       {/* Zone type label */}
       <div className="flex-shrink-0">
         <span
-          className={`inline-block text-xs font-bold uppercase tracking-widest px-2.5 py-1 rounded border ${stateClass}`}
+          className={`inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest px-2.5 py-1 rounded border ${stateClass}`}
         >
+          <ActionIcon className="w-3.5 h-3.5" aria-hidden="true" />
           {config.label}
         </span>
       </div>
@@ -36,7 +40,10 @@ export function ActionZoneCard({ zone, isSelected, onClick }: Props) {
       {/* Summary */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5">
-          <span className="text-xs text-stone-500">{stateLabel[zone.state]}</span>
+          <span className="inline-flex items-center gap-1 text-xs text-stone-500">
+            <StateIcon className="w-3 h-3" aria-hidden="true" />
+            {stateLabel[zone.state]}
+          </span>
           {zone.suggestedShares && (
             <>
               <span className="text-stone-200">·</span>

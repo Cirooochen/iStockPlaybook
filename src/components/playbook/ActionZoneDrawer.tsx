@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import type { ActionZone } from "@/types/playbook";
 import { X } from "lucide-react";
 import { zoneConfig, stateLabel } from "./actionZoneConfig";
+import { actionZoneIcon, zoneStateIcon } from "./playbookIcons";
 import type { TrimSizing } from "@/domain/portfolio/concentration";
 import type { HardConstraintResult } from "@/domain/playbook/hard-constraints";
 
@@ -69,19 +70,24 @@ export function ActionZoneDrawer({
           transform: isOpen ? "translateX(0)" : "translateX(100%)",
         }}
       >
-        {zone && (
+        {zone && (() => {
+          const ActionIcon = actionZoneIcon[zone.type];
+          const StateIcon = zoneStateIcon[zone.state];
+          return (
           <>
             {/* Header */}
             <div className="flex items-start justify-between px-6 pt-6 pb-5 border-b border-stone-100 flex-shrink-0">
               <div>
                 <span
-                  className={`inline-block text-xs font-bold uppercase tracking-widest px-2.5 py-1 rounded border mb-3 ${
+                  className={`inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest px-2.5 py-1 rounded border mb-3 ${
                     zoneConfig[zone.type].stateStyle[zone.state]
                   }`}
                 >
+                  <ActionIcon className="w-3.5 h-3.5" aria-hidden="true" />
                   {zoneConfig[zone.type].label}
                 </span>
-                <p className="text-[11px] font-medium text-stone-400 uppercase tracking-widest mb-1">
+                <p className="inline-flex items-center gap-1 text-[11px] font-medium text-stone-400 uppercase tracking-widest mb-1">
+                  <StateIcon className="w-3 h-3" aria-hidden="true" />
                   {stateLabel[zone.state]}
                 </p>
                 <h3 className="text-base font-semibold text-stone-800">
@@ -107,14 +113,9 @@ export function ActionZoneDrawer({
                     Why inactive
                   </p>
                   {firedConstraints.map((c) => (
-                    <div key={c.code}>
-                      <span className="text-xs font-semibold text-stone-500">
-                        {c.code}
-                      </span>
-                      <p className="text-xs text-stone-500 leading-relaxed mt-0.5">
-                        {c.description}
-                      </p>
-                    </div>
+                    <p key={c.code} className="text-xs text-stone-500 leading-relaxed">
+                      {c.description}
+                    </p>
                   ))}
                 </div>
               )}
@@ -253,7 +254,8 @@ export function ActionZoneDrawer({
               </div>
             </div>
           </>
-        )}
+          );
+        })()}
       </div>
     </>
   );

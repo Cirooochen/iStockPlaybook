@@ -268,7 +268,6 @@ export const whyThisStance = {
   supporting: [
     "Operating thesis remains constructive",
     "Long-term upside case remains valid",
-    "Position is meaningfully profitable (+45.7%)",
   ],
   constraints: [
     "Unity is 58.6% of the portfolio",

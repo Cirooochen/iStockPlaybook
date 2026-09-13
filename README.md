@@ -24,6 +24,9 @@ src/
 │       ├── PlaybookStatusBanner.tsx    # Stance, thesis health, confidence
 │       ├── PositionAndStrategy.tsx     # My Position + Portfolio Fit cards
 │       ├── TimelinePreview.tsx         # Recent activity feed
+│       ├── PrimaryActionCard.tsx       # Hero card — the single most relevant action zone right now
+│       ├── pickPrimaryZone.ts          # Tie-break: which ACTIVE zone is "the" primary one
+│       ├── playbookIcons.ts            # Shared icon families (action/state/reasoning) — see docs/PLAYBOOK_INTERFACE_PRINCIPLES.md §16
 │       └── ...                         # SignalScorecard, ThesisCard, etc.
 │
 ├── domain/                     # Pure TypeScript — zero React imports
@@ -55,7 +58,9 @@ src/
 │       └── scoring.ts          # calcPositionFitScore, calcConcentrationRiskScore
 │
 ├── infrastructure/
-│   └── market-data/twelve-data/ # Twelve Data adapter — client/mapper/orchestration, isolated from domain/
+│   └── market-data/
+│       ├── twelve-data/         # Twelve Data adapter — client/mapper/orchestration, isolated from domain/
+│       └── sec-edgar/           # SEC EDGAR adapter — ticker→CIK, companyfacts, XBRL mapper, cash-flow derivation
 │
 ├── config/
 │   └── ruleset-v0.1.ts         # Versioned parameter registry (all thresholds in one place)
@@ -143,12 +148,15 @@ a score when data is missing:
   generic, archetype-agnostic engine consuming a `FundamentalsTemplate`
   (currently one archetype, `GROWTH_SOFTWARE_TEMPLATE`): Revenue
   Growth, Growth Trend, Operating Margin, Margin Trend, FCF Margin,
-  Guidance, and Balance Sheet (net-cash-to-revenue). Designed for a
-  free, $0/month v0.1 provider (SEC EDGAR's public XBRL API — see
-  `docs/phase-e7a-sec-edgar-structured-fundamentals-adapter-design.md`);
-  **not yet wired to any live provider** — currently exercised only by
-  its own tests and the Scorecard-integration seam
-  (`EngineInput.fundamentalsResult`).
+  Guidance, and Balance Sheet (net-cash-to-revenue). Wired to live SEC
+  EDGAR structured XBRL data (`fetchLiveFundamentalsResult`,
+  `src/infrastructure/market-data/sec-edgar/orchestration.ts`) — a
+  free, $0/month v0.1 provider, per
+  `docs/phase-e7a-sec-edgar-structured-fundamentals-adapter-design.md`
+  and `docs/phase-e7c-edgar-quarterly-cashflow-derivation-design.md`
+  (cumulative-fact quarterly cash-flow derivation). Guidance is not
+  AI-extracted in v0.1 — it stays `MISSING` from EDGAR alone, never
+  fabricated. See "Live Fundamentals Data" below.
 
 Both reuse the same `MISSING != 0` semantics (`DataField<T>`,
 `src/types/market-data.ts`), the same anchor-based 0–100 normalization
@@ -176,6 +184,27 @@ it makes real network calls) confirms the live pipeline end-to-end:
 npm run validate:live-market-data
 ```
 
+## Live Fundamentals Data
+
+The Fundamentals evidence engine pulls real structured XBRL data from
+[SEC EDGAR](https://www.sec.gov/edgar) — free, no API key, but SEC's
+fair-access policy requires an identifying User-Agent. Add to
+`.env.local`:
+
+```
+SEC_EDGAR_USER_AGENT=<app name> <contact email>
+```
+
+Without it configured, `fetchLiveFundamentalsResult` fails closed —
+same "never throw, fall back to the existing seed value" contract
+`fetchLiveMomentumResult` already follows. A one-off manual validation
+script confirms the live pipeline end-to-end (ticker→CIK resolution,
+companyfacts fetch, XBRL mapping, quarterly cash-flow derivation):
+
+```bash
+npm run validate:live-sec-edgar-fundamentals
+```
+
 ## Design Skills (Claude Code)
 
 Four Emil Kowalski design skills are installed project-locally under `.claude/skills/`. Advisory only — do not override product specs or architecture.
@@ -195,7 +224,7 @@ Installed via `npx skills@1.5.23`. Version hashes tracked in `../skills-lock.jso
 npm test
 ```
 
-Vitest (`vitest.config.ts`), no jsdom — every test is a pure-function domain test, no React rendering (423 tests across 30 files). Covers the engine pipeline end-to-end (Unity baseline, BUY/SELL, overweight concentration, hard-constraint-disabled ADD, HOLD/TRIM stance, tactical trim sizing), the thesis/signals/momentum/fundamentals seams, the Twelve Data adapter (mocked HTTP, no live calls), Phase B.5's full algorithm-validation suite (`src/domain/validation/`), and a static guardrail proving `PlaybookClientShell` never imports individual domain modules directly.
+Vitest (`vitest.config.ts`), no jsdom — every test is a pure-function domain test, no React rendering (485 tests across 36 files). Covers the engine pipeline end-to-end (Unity baseline, BUY/SELL, overweight concentration, hard-constraint-disabled ADD, HOLD/TRIM stance, tactical trim sizing), the thesis/signals/momentum/fundamentals seams, the Twelve Data and SEC EDGAR adapters (mocked HTTP, no live calls), Phase B.5's full algorithm-validation suite (`src/domain/validation/`), and a static guardrail proving `PlaybookClientShell` never imports individual domain modules directly.
 
 ## Docs
 
@@ -209,10 +238,14 @@ current state. Start here:
 | `docs/VALIDATION_PROTOCOL.md` | The checkpoint process every phase since B.5 follows — classification taxonomy, stop conditions, reporting format |
 | `docs/PHASE-D-INTEGRATION-GUIDE.md` | The "evidence is not the decision" boundary governing how Momentum/Fundamentals integrate with Scorecard/stance/action zones |
 | `docs/phase-b5-algorithm-validation.md` | Phase B.5 roadmap + closeout — every deferred item, resolved or still open |
+| `docs/PLAYBOOK_INTERFACE_PRINCIPLES.md` | UI/UX principles governing the stock-detail page, including §16 Semantic Visual Language (stable icon families for actions/states/reasoning) |
+| `docs/REAL_PORTFOLIO_MODEL_BRIEF.md` | Product/architecture brief for Phase G — replacing seed portfolio data with real multi-asset holdings |
+| `docs/phase-g0-real-portfolio-data-model.md` | Phase G.0 — real Portfolio/Holding/Transaction data model **design** (not yet implemented) |
 
 Everything else in `docs/` (and `docs/validation/`) is a per-checkpoint
-design or validation record (`phase-c*`, `phase-d*`, `phase-e*`), each
-self-contained and cross-referenced from the ones that build on it.
+design or validation record (`phase-c*`, `phase-d*`, `phase-e*`,
+`phase-f*`, `phase-g*`), each self-contained and cross-referenced from
+the ones that build on it.
 
 ## Running locally
 
