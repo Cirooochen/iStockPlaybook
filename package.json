@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "validate:live-market-data": "tsx scripts/validate-live-market-data.ts"
+    "validate:live-market-data": "tsx scripts/validate-live-market-data.ts",
+    "validate:live-sec-edgar-fundamentals": "tsx scripts/validate-live-sec-edgar-fundamentals.ts"
   },
   "dependencies": {
     "lucide-react": "^1.41.0",
