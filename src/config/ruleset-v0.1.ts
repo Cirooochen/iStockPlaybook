@@ -25,6 +25,52 @@ export const RULESET = {
     mediumThreshold: 0.55,
     highThreshold: 0.80,
   },
+  // Phase H.2/H.3 — Playbook Onboarding deterministic strategy mapping
+  // (docs/phase-h2-deterministic-strategy-mapping.md,
+  // docs/phase-h3-playbook-onboarding-ux.md §11). Every number here is a
+  // named, versioned v0.1 POLICY HYPOTHESIS, explicitly approved by the
+  // user during H.2/H.3 — not derived from Unity's own configuration and
+  // not a universal investment rule or recommendation.
+  strategyDefaults: {
+    // docs/phase-h2-deterministic-strategy-mapping.md §2 — per-role
+    // target allocation range. accumulationCeilingPct is DERIVED from
+    // maxPct (below), never an independent per-role number.
+    roleTargetAllocation: {
+      LONG_TERM_CORE: { minPct: 20, maxPct: 30 },
+      GROWTH: { minPct: 10, maxPct: 18 },
+      TACTICAL: { minPct: 3, maxPct: 8 },
+    },
+    // accumulationCeilingPct = targetAllocationRange.maxPct + this buffer.
+    accumulationCeilingBufferPct: 5,
+    // docs/phase-h2-deterministic-strategy-mapping.md §3 — symmetric
+    // percentage band around coreCenterShares (= corePortion fraction ×
+    // current shares at confirmation time). Deliberately NOT derived from
+    // Unity's own (undocumented, ≈±4%) 600–650 core range.
+    coreBandHalfWidthPct: 0.08,
+    // docs/phase-h3-playbook-onboarding-ux.md §11 — Core Protection
+    // question's qualitative-answer → fraction mapping. Three coarse
+    // buckets only ("All of it" deliberately removed) — Core Protection
+    // represents a fuzzy, personal judgment about what portion of a
+    // holding is permanent, not a precise allocation calculation. No
+    // custom percentage/share input exists in v0.1; "I'm not sure yet"
+    // stays unresolved rather than forcing a falsely precise choice.
+    corePortionBuckets: {
+      MOST_OF_IT: 0.75,
+      ABOUT_HALF: 0.50,
+      A_SMALLER_PART: 0.25,
+    },
+  },
+  // docs/phase-h2-deterministic-strategy-mapping.md §8.1 — exists ONLY
+  // because the legacy ScoreItem type has no "unknown" representation.
+  // Used for a newly onboarded stock's Scorecard dimensions that have no
+  // live evidence (or no evidence pipeline at all, e.g. valuation) — this
+  // is NOT a claim of a real Neutral assessment. The real evidence status
+  // (SCORED/INSUFFICIENT_DATA/MISSING, plus fundamentals' modelFit) must
+  // always be read from ResearchEvidence/EngineOutput alongside it, never
+  // inferred from this placeholder value.
+  compatibilityPlaceholders: {
+    scorecardItem: { score: 5, state: "Neutral" },
+  },
   technical: {
     // §14 — Technical/Momentum Engine. Phase C.3: lookback windows for the
     // derived signals in src/domain/signals/momentum.ts. dma50Period/

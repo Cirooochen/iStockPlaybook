@@ -9,12 +9,7 @@ import type {
 } from "@/types/playbook";
 
 // Domain
-import {
-  applyBuy,
-  applySell,
-  calcPortfolioTotalAfterBuy,
-  calcPortfolioTotalAfterSell,
-} from "@/domain/portfolio/accounting";
+import { applyBuy, applySell } from "@/domain/portfolio/accounting";
 import { runDecisionEngine, type MomentumScoreResult, type FundamentalsScoreResult } from "@/domain/engine";
 
 // Sections
@@ -37,6 +32,17 @@ interface Props {
   initialScorecard: Scorecard;
   initialTimeline: TimelineEntry[];
   initialPortfolioTotalEur: number;
+  // Real cash currently available to fund a BUY (G.6).
+  availableCashEur: number;
+  /**
+   * Called after a BUY/SELL is confirmed — the caller (StockDetailClientShell)
+   * is responsible for actually updating the real Holding + Cash portfolio
+   * state and persisting it (G.6). This component no longer owns a
+   * second, ephemeral copy of position/portfolioTotalEur — `seed.position`
+   * and `initialPortfolioTotalEur` are themselves always the live values,
+   * recomputed by the caller from the real portfolio on every render.
+   */
+  onTransaction: (type: "BUY" | "SELL", shares: number, priceEur: number) => void;
   /**
    * Live momentum evidence, fetched once server-side per page load
    * (src/app/stocks/[ticker]/page.tsx) — undefined when no live data was
@@ -71,14 +77,17 @@ export function PlaybookClientShell({
   initialScorecard,
   initialTimeline,
   initialPortfolioTotalEur,
+  availableCashEur,
+  onTransaction,
   initialMomentumResult,
   initialFundamentalsResult,
 }: Props) {
-  const { market, strategy, playbook } = seed;
+  const { market, strategy, playbook, position } = seed;
+  // Always the live value from the caller — see the onTransaction doc
+  // comment above for why this is no longer a separate local copy.
+  const portfolioTotalEur = initialPortfolioTotalEur;
 
   // ── Mutable state ──────────────────────────────────────────────────────────
-  const [position, setPosition] = useState(seed.position);
-  const [portfolioTotalEur, setPortfolioTotalEur] = useState(initialPortfolioTotalEur);
   const [timeline, setTimeline] = useState<TimelineEntry[]>(initialTimeline);
   const [showModal, setShowModal] = useState(false);
   const [suggestedZone, setSuggestedZone] = useState<ActionZone | undefined>(undefined);
@@ -122,6 +131,11 @@ export function PlaybookClientShell({
   ) {
     const date = formatDate(new Date());
 
+    // Preview-only, for this session's local timeline entry text — the
+    // actual accounting mutation (real Holding + Cash, persisted) happens
+    // in onTransaction below. Same pure functions/formulas as before
+    // (deterministic accounting preserved), just no longer stored as this
+    // component's own position/portfolioTotalEur state.
     if (type === "BUY") {
       const newPos = applyBuy(
         position,
@@ -135,9 +149,6 @@ export function PlaybookClientShell({
         summary: `BUY — ${shares} shares @ €${priceEur.toFixed(2)}`,
         detail: `Avg cost €${newPos.averageCostEur.toFixed(2)} · Weight: ${newPos.portfolioWeightPct.toFixed(1)}%`,
       };
-      // Cash → Security — funded from existing portfolio cash, total unchanged.
-      setPortfolioTotalEur((prev) => calcPortfolioTotalAfterBuy(prev));
-      setPosition(newPos);
       setTimeline((prev) => [entry, ...prev]);
     } else {
       const { position: newPos, realizedGainEur, realizedGainPct } = applySell(
@@ -153,12 +164,10 @@ export function PlaybookClientShell({
         summary: `SELL — ${shares} shares @ €${priceEur.toFixed(2)}`,
         detail: `Realized: ${sign}€${Math.abs(realizedGainEur).toFixed(0)} (${sign}${realizedGainPct.toFixed(1)}%) · Weight: ${newPos.portfolioWeightPct.toFixed(1)}%`,
       };
-      // Sale proceeds become cash — still part of the tracked portfolio total.
-      setPortfolioTotalEur((prev) => calcPortfolioTotalAfterSell(prev));
-      setPosition(newPos);
       setTimeline((prev) => [entry, ...prev]);
     }
 
+    onTransaction(type, shares, priceEur);
     setShowModal(false);
   }
 
@@ -213,6 +222,7 @@ export function PlaybookClientShell({
         strategy={strategy}
         currentPriceEur={market.executionPriceEur}
         portfolioTotalEur={portfolioTotalEur}
+        availableCashEur={availableCashEur}
         trimSizing={trimSizing}
         thesisHealth={thesisHealth}
         suggestedZone={suggestedZone}

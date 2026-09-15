@@ -30,6 +30,10 @@ interface Props {
   strategy: Strategy;
   currentPriceEur: number;
   portfolioTotalEur: number;
+  // Real cash currently available to fund a BUY (G.6 — BUY now actually
+  // debits the portfolio's Cash holding, so it can genuinely run out,
+  // unlike the old implicit/untracked cash assumption).
+  availableCashEur: number;
   trimSizing: TrimSizing;
   thesisHealth: ThesisHealth;
   /**
@@ -58,6 +62,7 @@ export function AddTransactionModal({
   strategy,
   currentPriceEur,
   portfolioTotalEur,
+  availableCashEur,
   trimSizing,
   thesisHealth,
   suggestedZone,
@@ -94,7 +99,8 @@ export function AddTransactionModal({
   const shares = mode === "BY_SHARES" ? sharesFromShares : sharesFromAmount;
 
   const oversell = type === "SELL" && shares > position.shares;
-  const isValid = price > 0 && shares > 0 && !oversell;
+  const insufficientCash = type === "BUY" && shares * price > availableCashEur;
+  const isValid = price > 0 && shares > 0 && !oversell && !insufficientCash;
 
   // HC-003 protects the core minimum — meaningless without a core range.
   const hc003 =
@@ -274,9 +280,21 @@ export function AddTransactionModal({
                     {position.shares.toLocaleString("de-DE")} shares
                   </p>
                 )}
+                {type === "BUY" && (
+                  <p className="text-xs text-stone-400 mt-1">
+                    Available cash: €{availableCashEur.toLocaleString("de-DE", { maximumFractionDigits: 0 })}
+                  </p>
+                )}
                 {oversell && (
                   <p className="text-xs text-red-500 mt-1">
                     Cannot sell more than {position.shares} shares held.
+                  </p>
+                )}
+                {insufficientCash && (
+                  <p className="text-xs text-red-500 mt-1">
+                    Not enough cash — this purchase costs €
+                    {(shares * price).toLocaleString("de-DE", { maximumFractionDigits: 0 })}, but only €
+                    {availableCashEur.toLocaleString("de-DE", { maximumFractionDigits: 0 })} is available.
                   </p>
                 )}
               </div>
@@ -298,6 +316,18 @@ export function AddTransactionModal({
                 {sharesFromAmount > 0 && price > 0 && (
                   <p className="text-xs text-stone-400 mt-1">
                     = {sharesFromAmount} whole shares
+                  </p>
+                )}
+                {type === "BUY" && (
+                  <p className="text-xs text-stone-400 mt-1">
+                    Available cash: €{availableCashEur.toLocaleString("de-DE", { maximumFractionDigits: 0 })}
+                  </p>
+                )}
+                {insufficientCash && (
+                  <p className="text-xs text-red-500 mt-1">
+                    Not enough cash — this purchase costs €
+                    {(shares * price).toLocaleString("de-DE", { maximumFractionDigits: 0 })}, but only €
+                    {availableCashEur.toLocaleString("de-DE", { maximumFractionDigits: 0 })} is available.
                   </p>
                 )}
               </div>

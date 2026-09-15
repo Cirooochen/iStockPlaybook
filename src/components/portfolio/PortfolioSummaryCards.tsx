@@ -1,38 +1,68 @@
-import type { Portfolio } from "@/types/playbook";
+import type { HoldingSnapshot, PortfolioSnapshot, StockPlaybookConfig } from "@/types/portfolio";
+import { holdingWeightPct } from "@/domain/portfolio/snapshot";
+import { deriveStockConcentrationView } from "@/domain/portfolio/stock-concentration-view";
 
 interface Props {
-  portfolio: Portfolio;
+  snapshot: PortfolioSnapshot;
+  configs: StockPlaybookConfig[];
 }
 
-export function PortfolioSummaryCards({ portfolio }: Props) {
-  const largest = portfolio.holdings.reduce((prev, curr) =>
-    curr.position.portfolioWeightPct > prev.position.portfolioWeightPct
-      ? curr
-      : prev
-  );
+export function PortfolioSummaryCards({ snapshot, configs }: Props) {
+  const { holdings, valuation } = snapshot;
 
-  const needsReview = portfolio.holdings.filter(
-    (h) => h.attentionState === "ACTION" || h.attentionState === "WATCH"
-  ).length;
+  // Weight is only ever authoritative when the whole portfolio is COMPLETE
+  // (holdingWeightPct enforces this itself) — never derived from a partial
+  // denominator.
+  const weighted = holdings
+    .map((holding) => ({ holding, weightPct: holdingWeightPct(holding, valuation) }))
+    .filter(
+      (x): x is { holding: HoldingSnapshot; weightPct: number } => x.weightPct !== null
+    );
+
+  const largest =
+    weighted.length > 0
+      ? weighted.reduce((prev, curr) => (curr.weightPct > prev.weightPct ? curr : prev))
+      : null;
+
+  const largestConfig = largest
+    ? configs.find((c) => c.instrumentId === largest.holding.instrument.id)
+    : undefined;
+  const largestConcentrationView = largest
+    ? deriveStockConcentrationView(largest.holding, valuation, largestConfig)
+    : null;
+
+  // Only STOCK holdings with a linked StockPlaybookConfig carry a target to
+  // breach — CASH/ETF/CRYPTO/OTHER, and STOCK holdings with no config yet,
+  // are portfolio-only and never counted here.
+  const needsReview = configs.filter((config) => {
+    const holding = holdings.find((h) => h.instrument.id === config.instrumentId);
+    const view = holding ? deriveStockConcentrationView(holding, valuation, config) : null;
+    return view !== null && view.state !== "WITHIN_TARGET";
+  }).length;
 
   const cards = [
     {
       label: "Largest position",
-      value: largest.security.ticker,
-      sub: `${largest.position.portfolioWeightPct.toFixed(1)}%`,
-      alert: largest.position.portfolioWeightPct > 45,
+      value: largest ? largest.holding.instrument.ticker ?? largest.holding.instrument.name : "—",
+      sub: largest ? `${largest.weightPct.toFixed(1)}%` : "Unavailable",
+      alert: largestConcentrationView !== null && largestConcentrationView.state !== "WITHIN_TARGET",
     },
     {
       label: "Positions",
-      value: `${portfolio.holdings.length}`,
+      value: `${holdings.length}`,
       sub: "holdings tracked",
       alert: false,
     },
     {
       label: "Needs attention",
-      value: `${needsReview}`,
-      sub: needsReview === 1 ? "position flagged" : "positions flagged",
-      alert: needsReview > 0,
+      value: valuation.state === "COMPLETE" ? `${needsReview}` : "—",
+      sub:
+        valuation.state === "COMPLETE"
+          ? needsReview === 1
+            ? "position flagged"
+            : "positions flagged"
+          : "valuation incomplete",
+      alert: valuation.state === "COMPLETE" && needsReview > 0,
     },
   ];
 

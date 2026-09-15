@@ -1,12 +1,7 @@
-import { notFound } from "next/navigation";
-import {
-  unitySeed,
-  unityActionZones,
-  unityScorecard,
-  unityTimeline,
-} from "@/data/unity-seed";
-import { portfolioSeed } from "@/data/portfolio-seed";
-import { PlaybookClientShell } from "@/components/playbook/PlaybookClientShell";
+import { unitySeed } from "@/data/unity-seed";
+import { holdingsSeed } from "@/data/holdings-seed";
+import { stockPlaybookConfigsSeed } from "@/data/stock-playbook-seed";
+import { StockDetailClientShell } from "@/components/playbook/StockDetailClientShell";
 import { fetchLiveMomentumResult } from "@/infrastructure/market-data/twelve-data/orchestration";
 import { fetchLiveFundamentalsResult } from "@/infrastructure/market-data/sec-edgar/orchestration";
 
@@ -15,9 +10,21 @@ export default async function StockPlaybookPage({
 }: PageProps<"/stocks/[ticker]">) {
   const { ticker } = await params;
 
-  if (ticker !== "U") {
-    notFound();
-  }
+  // Phase H.4 — whether this ticker has a holding, and whether that
+  // holding has a Playbook config, is now live, client-side state
+  // (usePortfolioState, localStorage) that a Server Component cannot see
+  // — StockDetailClientShell resolves both by ticker itself and renders
+  // the right state (Hero Stack / No Playbook / Playbook unavailable /
+  // not found). This route no longer 404s on a missing config.
+  //
+  // The static seed lookup below is used ONLY to recover Unity's existing
+  // benchmark for the live momentum fetch (a config-dependent value the
+  // server genuinely cannot get any other way) and a display-name
+  // fallback — never to gate whether this page renders.
+  const seedHolding = holdingsSeed.find((h) => h.instrument.ticker === ticker);
+  const staticConfig = seedHolding
+    ? stockPlaybookConfigsSeed.find((c) => c.instrumentId === seedHolding.instrument.id)
+    : undefined;
 
   // Server-only (this file has no "use client" directive — see
   // docs/phase-d2-live-momentum-engine-orchestration-design.md §1):
@@ -26,20 +33,25 @@ export default async function StockPlaybookPage({
   // each resolves to undefined on any failure, which
   // PlaybookClientShell/runDecisionEngine already treat identically to
   // "no live data available" (Phase D.0/D.1's existing fallback,
-  // extended to Fundamentals by Phase E.3/E.4/E.8).
+  // extended to Fundamentals by Phase E.3/E.4/E.8). Fetched for every
+  // ticker, not just configured ones, so a newly onboarded stock's
+  // Analyze/Review step (H.3) has real evidence to show, not just its
+  // eventual confirmed Playbook page.
   const checkedAt = new Date().toISOString();
   const [initialMomentumResult, initialFundamentalsResult] = await Promise.all([
-    fetchLiveMomentumResult(unitySeed.security.ticker, unitySeed.strategy.benchmarkInstrumentId, checkedAt),
-    fetchLiveFundamentalsResult(unitySeed.security.ticker, checkedAt),
+    fetchLiveMomentumResult(ticker, staticConfig?.strategy.benchmarkInstrumentId, checkedAt),
+    fetchLiveFundamentalsResult(ticker, checkedAt),
   ]);
 
   return (
-    <PlaybookClientShell
-      seed={unitySeed}
-      initialZones={unityActionZones}
-      initialScorecard={unityScorecard}
-      initialTimeline={unityTimeline}
-      initialPortfolioTotalEur={portfolioSeed.totalValueEur}
+    <StockDetailClientShell
+      ticker={ticker}
+      fallbackName={seedHolding?.instrument.name ?? ticker}
+      legacyMarketColor={{
+        primaryPriceUsd: unitySeed.market.primaryPriceUsd,
+        marketCurrency: unitySeed.security.marketCurrency,
+        dailyChangePct: unitySeed.market.dailyChangePct,
+      }}
       initialMomentumResult={initialMomentumResult}
       initialFundamentalsResult={initialFundamentalsResult}
     />
