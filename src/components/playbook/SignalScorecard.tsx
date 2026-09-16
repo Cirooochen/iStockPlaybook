@@ -5,6 +5,11 @@ import type { Scorecard, SignalState } from "@/types/playbook";
 import type { MomentumScoreResult, FundamentalsScoreResult } from "@/domain/engine";
 import { ChevronRight } from "lucide-react";
 import { reasoningCategoryIcon } from "./playbookIcons";
+import {
+  fundamentalsModelFitLabel,
+  isFundamentalsResultScored,
+  type FundamentalsModelFit,
+} from "@/domain/playbook/fundamentals-model-fit";
 
 const stateStyle: Record<SignalState, string> = {
   Positive: "text-teal-700 bg-teal-50",
@@ -55,9 +60,18 @@ interface Props {
    * expanding this row was a named F.0 gap (computed, never shown). */
   momentumResult?: MomentumScoreResult;
   fundamentalsResult?: FundamentalsScoreResult;
+  /**
+   * Post-Phase-H Trust Cleanup (docs/post-phase-h-product-review.md F4)
+   * — surfaced next to the Fundamentals row, whenever Fundamentals has a
+   * real computed score, so an unsupported/limited archetype fit can
+   * never read with the same authority as a confirmed one. Never blended
+   * into the score or the state pill (H.0's own resolution) — a separate,
+   * secondary label only.
+   */
+  fundamentalsModelFit?: FundamentalsModelFit;
 }
 
-export function SignalScorecard({ scorecard, momentumResult, fundamentalsResult }: Props) {
+export function SignalScorecard({ scorecard, momentumResult, fundamentalsResult, fundamentalsModelFit }: Props) {
   const [expanded, setExpanded] = useState<keyof Scorecard | null>(null);
 
   function detailFor(key: keyof Scorecard) {
@@ -77,39 +91,111 @@ export function SignalScorecard({ scorecard, momentumResult, fundamentalsResult 
         {rows.map(({ key, label }) => {
           const item = scorecard[key];
           const Icon = reasoningCategoryIcon[key];
+
+          // Post-Phase-H Trust Cleanup (docs/post-phase-h-product-review.md
+          // F4) — `null` means "not evaluated" (currently only ever
+          // `valuation`, since no live pipeline exists for it at all). An
+          // honest "Not available" row, never a fabricated score/pill —
+          // no bar, no number, no expand affordance (there is no evidence
+          // behind it to expand into).
+          if (item === null) {
+            return (
+              <div key={key} className="flex items-center gap-3 py-2">
+                <Icon className="w-4 h-4 text-stone-300 shrink-0" aria-hidden="true" />
+                <span className="text-sm text-stone-600 w-28 shrink-0 text-left">
+                  {label}
+                </span>
+                <div className="flex-1 h-1.5 bg-stone-100 rounded-full overflow-hidden" />
+                <span className="text-sm text-stone-400 italic tabular-nums w-12 text-right">
+                  —
+                </span>
+                <span className="text-xs px-2 py-0.5 rounded w-20 text-center text-stone-400 bg-stone-50">
+                  Not available
+                </span>
+              </div>
+            );
+          }
+
           const detail = detailFor(key);
           const isExpandable = detail !== undefined;
           const isOpen = expanded === key;
+          // Fundamentals false-certainty follow-up
+          // (docs/post-phase-h-product-review.md F4) — scorecard.fundamentals
+          // is never null (the legacy compatibility placeholder still fills
+          // this required ScoreItem slot internally, per H.2 §8.1 and
+          // EngineOutput's own type — kept exactly as-is, per instruction,
+          // since changing it isn't required to fix what users see), but it
+          // must never be SHOWN as a real score when the live pipeline
+          // produced nothing SCORED. fundamentalsResult (SCORED |
+          // INSUFFICIENT_DATA | undefined) is the actual source of truth for
+          // whether there's a real evaluation behind the number — checked
+          // here, not the (always-present) ScoreItem shape itself. Still
+          // expandable when a real (even if INSUFFICIENT_DATA) result
+          // exists — that detail panel already reads coverage/components,
+          // never `.overall`, so showing it here is honest, not misleading.
+          const isFundamentalsUnavailable = key === "fundamentals" && !isFundamentalsResultScored(fundamentalsResult);
 
           const row = (
             <div className="flex items-center gap-3 py-2">
               <Icon className="w-4 h-4 text-stone-400 shrink-0" aria-hidden="true" />
               <span className="text-sm text-stone-600 w-28 shrink-0 text-left">
                 {label}
+                {/* Post-Phase-H Trust Cleanup
+                    (docs/post-phase-h-product-review.md F4) — gated on
+                    fundamentalsResult?.status === "SCORED" specifically
+                    (not just fundamentalsModelFit being defined, which is
+                    always true): showing "Model fit: X" next to the
+                    fallback/placeholder score ASML-style stocks currently
+                    display (INSUFFICIENT_DATA/no live result) would imply
+                    a real evaluation happened when none did — exactly
+                    the "evidence state != signal state" failure this
+                    cleanup exists to remove, not add. Never blended into
+                    the score/state pill (H.0's own resolution). */}
+                {key === "fundamentals" &&
+                  !isFundamentalsUnavailable &&
+                  fundamentalsModelFit !== undefined && (
+                    <span className="block text-[10px] text-stone-400 font-normal leading-tight">
+                      Model fit: {fundamentalsModelFitLabel(fundamentalsModelFit)}
+                    </span>
+                  )}
               </span>
-              {/* Bar */}
-              <div className="flex-1 h-1.5 bg-stone-100 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-colors bar-grow-in ${
-                    item.score >= 7
-                      ? "bg-teal-400"
-                      : item.score >= 5
-                      ? "bg-stone-300"
-                      : "bg-amber-400"
-                  }`}
-                  style={{ width: `${item.score * 10}%` }}
-                />
-              </div>
-              <span className="text-sm font-medium text-stone-600 tabular-nums w-12 text-right">
-                {item.score} / 10
-              </span>
-              <span
-                className={`text-xs px-2 py-0.5 rounded w-20 text-center ${
-                  stateStyle[item.state]
-                }`}
-              >
-                {item.state}
-              </span>
+              {isFundamentalsUnavailable ? (
+                <>
+                  <div className="flex-1 h-1.5 bg-stone-100 rounded-full overflow-hidden" />
+                  <span className="text-sm text-stone-400 italic tabular-nums w-12 text-right">
+                    —
+                  </span>
+                  <span className="text-xs px-2 py-0.5 rounded w-20 text-center text-stone-400 bg-stone-50">
+                    Not available
+                  </span>
+                </>
+              ) : (
+                <>
+                  {/* Bar */}
+                  <div className="flex-1 h-1.5 bg-stone-100 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-colors bar-grow-in ${
+                        item.score >= 7
+                          ? "bg-teal-400"
+                          : item.score >= 5
+                          ? "bg-stone-300"
+                          : "bg-amber-400"
+                      }`}
+                      style={{ width: `${item.score * 10}%` }}
+                    />
+                  </div>
+                  <span className="text-sm font-medium text-stone-600 tabular-nums w-12 text-right">
+                    {item.score} / 10
+                  </span>
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded w-20 text-center ${
+                      stateStyle[item.state]
+                    }`}
+                  >
+                    {item.state}
+                  </span>
+                </>
+              )}
               {isExpandable && (
                 <ChevronRight
                   className={`w-3.5 h-3.5 text-stone-300 shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`}

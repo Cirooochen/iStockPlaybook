@@ -17,7 +17,7 @@ interface Props {
 
 export function StockHeader({ seed, position, onAddTransaction }: Props) {
   const { security, market } = seed;
-  const dailySign = market.dailyChangePct >= 0 ? "+" : "";
+  const dailySign = market.dailyChangePct !== undefined && market.dailyChangePct >= 0 ? "+" : "";
 
   return (
     <div className="mb-6">
@@ -58,10 +58,12 @@ export function StockHeader({ seed, position, onAddTransaction }: Props) {
               <span className="text-3xl font-light text-stone-900 tabular-nums">
                 €{market.executionPriceEur.toFixed(2)}
               </span>
-              <span className="text-sm text-stone-500 tabular-nums">
-                {dailySign}
-                {market.dailyChangePct.toFixed(1)}% today
-              </span>
+              {market.dailyChangePct !== undefined && (
+                <span className="text-sm text-stone-500 tabular-nums">
+                  {dailySign}
+                  {market.dailyChangePct.toFixed(1)}% today
+                </span>
+              )}
               <span className="text-stone-200">·</span>
               <span className="text-sm text-stone-500 tabular-nums">
                 {position.shares.toLocaleString("de-DE")} sh · {position.portfolioWeightPct.toFixed(1)}% of portfolio
@@ -69,11 +71,18 @@ export function StockHeader({ seed, position, onAddTransaction }: Props) {
             </div>
 
             <div className="flex items-center gap-4 mt-1.5">
-              <span className="text-xs text-stone-400">
-                Primary market ${market.primaryPriceUsd.toFixed(2)}{" "}
-                {security.marketCurrency}
-              </span>
-              <span className="text-stone-200">·</span>
+              {/* Phase H.6 hardening — only Unity has real secondary-market
+                  (USD) seed data; every other stock omits this line rather
+                  than showing Unity's price/currency as its own. */}
+              {market.primaryPriceUsd !== undefined && security.marketCurrency !== undefined && (
+                <>
+                  <span className="text-xs text-stone-400">
+                    Primary market ${market.primaryPriceUsd.toFixed(2)}{" "}
+                    {security.marketCurrency}
+                  </span>
+                  <span className="text-stone-200">·</span>
+                </>
+              )}
               <div className="flex items-center gap-1 text-xs text-stone-400">
                 <Clock className="w-3 h-3" />
                 Market data updated today, 16:15

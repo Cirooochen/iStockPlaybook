@@ -54,6 +54,17 @@ export const unitySeed: StockSeed = {
   },
 };
 
+// Post-Phase-H Trust Cleanup (docs/post-phase-h-product-review.md F5) —
+// several TRIM_1/TRIM_2/ADD fields below previously named "price" or
+// "valuation" as an evaluated trigger/condition (e.g. "Price / valuation
+// reaches the defined trim zone"), even though no valuation evidence has
+// ever existed anywhere in this system. Rewritten to state only the
+// condition that is actually deterministically evaluated — portfolio
+// concentration/weight relative to target — never removing the real
+// concentration-based case for trimming, only the false claim that price
+// or valuation is being checked. Price/valuation judgment remains
+// entirely the user's own call, same as it already is for every other
+// stock's Action Zone execution.
 export const unityActionZones: ActionZone[] = [
   {
     type: "ADD",
@@ -72,7 +83,6 @@ export const unityActionZones: ActionZone[] = [
     ],
     doNotTriggerIf: [
       "Portfolio exposure remains above your accumulation threshold",
-      "Valuation remains elevated relative to earnings expectations",
     ],
   },
   {
@@ -98,11 +108,10 @@ export const unityActionZones: ActionZone[] = [
     type: "TRIM_1",
     state: "WATCH",
     title: "Trim Level 1",
-    summary:
-      "Use stronger price / valuation conditions to reduce concentration.",
+    summary: "Reduce concentration while portfolio weight remains above target.",
     suggestedShares: "50–100",
     primaryTrigger:
-      "Price / valuation reaches the defined trim zone while portfolio concentration remains above 50%.",
+      "Portfolio concentration remains above your 50% short-term target.",
     suggestedAction: "Consider selling 50–100 tactical shares.",
     whyBullets: [
       "Current portfolio weight: 58.6%",
@@ -111,7 +120,6 @@ export const unityActionZones: ActionZone[] = [
       "Tactical inventory remains available (approx. 250–300 shares)",
     ],
     doNotTriggerIf: [
-      "Earnings materially improve the valuation range",
       "Portfolio weight falls below target beforehand",
       "You change the core-position strategy",
     ],
@@ -120,19 +128,18 @@ export const unityActionZones: ActionZone[] = [
     type: "TRIM_2",
     state: "WATCH",
     title: "Trim Level 2",
-    summary: "Trim further if valuation expands faster than earnings power.",
+    summary: "Trim further while concentration remains materially above target.",
     suggestedShares: "75–100",
     primaryTrigger:
-      "Further price appreciation without a comparable increase in earnings power or forward expectations.",
+      "Portfolio concentration remains materially above target after Level 1.",
     suggestedAction: "Consider selling another 75–125 tactical shares.",
     whyBullets: [
-      "Valuation has expanded relative to earnings power",
+      "Portfolio weight remains meaningfully above your target range",
       "Concentration management remains the priority",
       "Preserve the 600–650-share long-term core",
       "Tactical shares available for further reduction",
     ],
     doNotTriggerIf: [
-      "Earnings upgrade justifies the valuation expansion",
       "Concentration has already fallen to target range",
       "Thesis materially strengthens",
     ],
@@ -163,7 +170,13 @@ export const unityActionZones: ActionZone[] = [
 
 export const unityScorecard: Scorecard = {
   fundamentals: { score: 8, state: "Positive" },
-  valuation: { score: 5, state: "Neutral" },
+  // Post-Phase-H Trust Cleanup — Unity's own Valuation was always this
+  // same fabricated placeholder too (H.2 §8.1 already documented this:
+  // "Unity's own Scorecard.valuation has always been this same kind of
+  // placeholder, simply undocumented as one"); no live pipeline exists
+  // for it, for any stock, so it is honestly `null` here as well —
+  // Unity gets no special exception from this fix.
+  valuation: null,
   momentum: { score: 7, state: "Positive" },
   thesisHealth: { score: 8, state: "Intact" },
   positionFit: { score: 3, state: "Weak" },

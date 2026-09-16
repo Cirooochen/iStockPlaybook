@@ -8,7 +8,11 @@ export function deriveFundamentalsScore(scorecard: Scorecard): ScoreItem {
   return scorecard.fundamentals;
 }
 
-export function deriveValuationScore(scorecard: Scorecard): ScoreItem {
+// Post-Phase-H Trust Cleanup — `null` passes through unchanged, same as
+// every other field here; this function still fabricates nothing, it
+// just no longer has a non-null value to pass through for valuation
+// until a real pipeline exists (docs/post-phase-h-product-review.md F4).
+export function deriveValuationScore(scorecard: Scorecard): ScoreItem | null {
   return scorecard.valuation;
 }
 
@@ -19,7 +23,7 @@ export function deriveTechnicalScore(scorecard: Scorecard): ScoreItem {
 
 export interface Signals {
   fundamentals: ScoreItem;
-  valuation: ScoreItem;
+  valuation: ScoreItem | null;
   momentum: ScoreItem;
 }
 

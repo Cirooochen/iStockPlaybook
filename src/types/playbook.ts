@@ -47,7 +47,16 @@ export interface ScoreItem {
 
 export interface Scorecard {
   fundamentals: ScoreItem;
-  valuation: ScoreItem;
+  // Post-Phase-H Trust Cleanup (docs/post-phase-h-product-review.md F4,
+  // docs/minimum-research-model.md §2.2/§5) — null, never a placeholder
+  // ScoreItem. No live Valuation pipeline exists for any stock, ever;
+  // representing that as a fabricated "5/10 Neutral" is exactly the
+  // "missing evidence became false certainty" failure this codebase's
+  // own guardrails forbid everywhere else. Evidence state (evaluated or
+  // not) is deliberately kept out of SignalState/ScoreItem — a `null`
+  // here means "not evaluated," never a new SignalState value smuggled
+  // into an otherwise-real signal's shape.
+  valuation: ScoreItem | null;
   momentum: ScoreItem;
   thesisHealth: ScoreItem;
   positionFit: ScoreItem;
@@ -58,15 +67,22 @@ export interface Security {
   name: string;
   ticker: string;
   exchange: string;
-  marketCurrency: string;
+  // Phase H.6 hardening — optional: only Unity has real hand-seeded data
+  // for this (unity-seed.ts). No live secondary-market-currency/USD-quote
+  // pipeline is wired for any stock (Phase G.5, explicitly out of scope)
+  // — a non-Unity stock must show this honestly absent, never Unity's
+  // value passed off as its own (StockHeader.tsx omits the line when
+  // undefined, rather than fabricating one).
+  marketCurrency?: string;
   isin?: string;
   executionCurrency?: string;
 }
 
 export interface MarketData {
   executionPriceEur: number;
-  primaryPriceUsd: number;
-  dailyChangePct: number;
+  // Phase H.6 hardening — optional, see Security.marketCurrency's comment.
+  primaryPriceUsd?: number;
+  dailyChangePct?: number;
   updatedAt: string;
 }
 

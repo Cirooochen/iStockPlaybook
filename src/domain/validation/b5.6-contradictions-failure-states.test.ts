@@ -119,7 +119,7 @@ describe("B.5.6.2 — strong company signals do not override thesis MIXED for AD
 
   it("the strong company signals remain visible in the scorecard even though ADD is blocked — the contradiction is preserved, not resolved by silently downgrading the scores", () => {
     expect(output.scorecard.fundamentals.score).toBe(9);
-    expect(output.scorecard.valuation.score).toBe(9);
+    expect(output.scorecard.valuation?.score).toBe(9);
     expect(output.scorecard.momentum.score).toBe(9);
   });
 });
@@ -169,9 +169,46 @@ describe("B.5.6.3 — missing required signal data has no representation in the 
       typesSource.indexOf("interface MarketData"),
       typesSource.indexOf("interface Position")
     );
+    // Phase H.6 (docs/phase-h6-end-to-end-validation.md) — MarketData.
+    // primaryPriceUsd/dailyChangePct deliberately became optional: no live
+    // secondary-market-currency/USD-quote pipeline is wired for any stock
+    // except Unity's own hand-seeded data (Phase G.5, unchanged), and
+    // these two fields never cross the EngineInput boundary (engine.ts
+    // only ever reads MarketData.executionPriceEur) — they are cosmetic
+    // display fields, not decision-relevant SIGNAL data, so this does not
+    // reopen the gap this test protects: missing fundamentals/valuation/
+    // momentum SIGNAL data still has no type-level representation in
+    // ScoreItem/Scorecard. Excluded here by name, not by blanket
+    // permissiveness — any OTHER MarketData field (executionPriceEur,
+    // updatedAt) or any Scorecard/ScoreItem field becoming optional still
+    // fails this test.
+    const marketDataBlockExcludingKnownCosmeticFields = marketDataBlock
+      .replace(/primaryPriceUsd\?:[^;]*;/, "")
+      .replace(/dailyChangePct\?:[^;]*;/, "");
+    // Post-Phase-H Trust Cleanup
+    // (docs/post-phase-h-product-review.md F4,
+    // docs/minimum-research-model.md §2.2/§5) — Scorecard.valuation is
+    // the ONE deliberate, intended closure of the gap this test protects:
+    // no live Valuation pipeline exists for any stock, so a fabricated
+    // "5/10 Neutral" was exactly the "missing SIGNAL data has no
+    // type-level representation" failure this test's own title names —
+    // for valuation specifically, that is now fixed on purpose, not
+    // reopened by accident. Excluded here by name, not by blanket
+    // permissiveness — fundamentals/momentum/thesisHealth/positionFit/
+    // concentrationRisk becoming optional/nullable still fails this test,
+    // and so does anything about valuation OTHER than this exact,
+    // reviewed field declaration.
+    const scorecardBlockExcludingValuation = scorecardBlock.replace(
+      /valuation: ScoreItem \| null;/,
+      ""
+    );
     // A `field?:` optional marker or `| null`/`| undefined` union would be
     // the mechanism to express absence — none exists in any of these three.
-    for (const block of [scoreItemBlock, scorecardBlock, marketDataBlock]) {
+    for (const block of [
+      scoreItemBlock,
+      scorecardBlockExcludingValuation,
+      marketDataBlockExcludingKnownCosmeticFields,
+    ]) {
       expect(block).not.toMatch(/\w+\?:/);
       expect(block).not.toMatch(/\| *(null|undefined)/);
     }

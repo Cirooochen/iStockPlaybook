@@ -94,9 +94,11 @@ describe("H.4 — non-Unity stock becomes Playbook-accessible after confirmation
     // a fully working Playbook, same as Unity.
     expect(output.stance).toBeDefined();
     expect(output.actionZones).toHaveLength(5);
-    // Valuation always reads the compatibility placeholder (H.2 §8.1) —
-    // never a fabricated real signal.
-    expect(output.scorecard.valuation).toEqual({ score: 5, state: "Neutral" });
+    // Post-Phase-H Trust Cleanup (docs/post-phase-h-product-review.md
+    // F4) — Valuation is always null ("not evaluated"), never a
+    // fabricated placeholder score. No live pipeline exists for it, for
+    // any stock, so this must never read as a real signal.
+    expect(output.scorecard.valuation).toBeNull();
   });
 });
 

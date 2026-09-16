@@ -19,6 +19,7 @@ import { PrimaryActionCard } from "@/components/playbook/PrimaryActionCard";
 import { PositionAndStrategy } from "@/components/playbook/PositionAndStrategy";
 import { ActionZoneSection } from "@/components/playbook/ActionZoneSection";
 import { SignalScorecard } from "@/components/playbook/SignalScorecard";
+import type { FundamentalsModelFit } from "@/domain/playbook/fundamentals-model-fit";
 import { ThesisCard } from "@/components/playbook/ThesisCard";
 import { WhatChangesMyView } from "@/components/playbook/WhatChangesMyView";
 import { ResearchPreview } from "@/components/playbook/ResearchPreview";
@@ -61,6 +62,28 @@ interface Props {
    * same as the other `initial*` props.
    */
   initialFundamentalsResult?: FundamentalsScoreResult;
+  /**
+   * Phase H.6 hardening. ThesisCard/WhatChangesMyView/ResearchPreview are
+   * hand-authored, Unity-only content — they import unity-seed.ts
+   * directly and take no props of their own (H.0 §5 item 2: out of
+   * Phase H's scope to build a per-stock equivalent). Before this flag,
+   * they rendered unconditionally for every stock, so a non-Unity user
+   * (e.g. an ASML holder) saw Unity's literal thesis text, catalysts, and
+   * research-document titles under their own company's Playbook — an H.6
+   * audit finding, not a mere missing feature. `false` for any stock
+   * other than Unity; the caller (StockDetailClientShell) is the only
+   * place that knows which stock this is.
+   */
+  showHandAuthoredThesisContent: boolean;
+  /**
+   * Post-Phase-H Trust Cleanup (docs/post-phase-h-product-review.md F4)
+   * — the same isUnity-derived signal StockDetailClientShell already
+   * computes, threaded through so SignalScorecard can disclose it
+   * alongside the Fundamentals row rather than letting an unsupported/
+   * limited archetype fit read with the same authority as a confirmed
+   * one.
+   */
+  fundamentalsModelFit: FundamentalsModelFit;
 }
 
 function formatDate(d: Date): string {
@@ -81,6 +104,8 @@ export function PlaybookClientShell({
   onTransaction,
   initialMomentumResult,
   initialFundamentalsResult,
+  showHandAuthoredThesisContent,
+  fundamentalsModelFit,
 }: Props) {
   const { market, strategy, playbook, position } = seed;
   // Always the live value from the caller — see the onTransaction doc
@@ -208,16 +233,22 @@ export function PlaybookClientShell({
         scorecard={derivedScorecard}
         momentumResult={engine.momentumResult}
         fundamentalsResult={engine.fundamentalsResult}
+        fundamentalsModelFit={fundamentalsModelFit}
       />
-      <ThesisCard />
-      <WhatChangesMyView />
-      <ResearchPreview />
+      {showHandAuthoredThesisContent && (
+        <>
+          <ThesisCard />
+          <WhatChangesMyView />
+          <ResearchPreview />
+        </>
+      )}
       <TimelinePreview timeline={timeline} />
 
       <AddTransactionModal
         isOpen={showModal}
         onClose={() => setShowModal(false)}
         onConfirm={handleTransaction}
+        securityName={seed.security.name}
         position={position}
         strategy={strategy}
         currentPriceEur={market.executionPriceEur}

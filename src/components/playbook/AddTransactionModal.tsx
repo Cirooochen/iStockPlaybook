@@ -26,6 +26,13 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   onConfirm: (type: TransactionType, shares: number, priceEur: number) => void;
+  // Phase H.6 hardening — the modal title used to read "Add Transaction —
+  // Unity Software" as a literal, unparameterized string for every stock
+  // (an H.6 audit finding: every non-Unity user saw Unity's name in their
+  // own transaction dialog). Passed by the caller (PlaybookClientShell)
+  // from seed.security.name, the same source every other identity label
+  // on this page already uses.
+  securityName: string;
   position: Position;
   strategy: Strategy;
   currentPriceEur: number;
@@ -58,6 +65,7 @@ export function AddTransactionModal({
   isOpen,
   onClose,
   onConfirm,
+  securityName,
   position,
   strategy,
   currentPriceEur,
@@ -196,7 +204,7 @@ export function AddTransactionModal({
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-stone-100">
           <h2 className="text-sm font-semibold text-stone-800">
-            Add Transaction — Unity Software
+            Add Transaction — {securityName}
           </h2>
           <button
             onClick={onClose}

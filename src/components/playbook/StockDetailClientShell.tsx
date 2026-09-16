@@ -33,6 +33,7 @@ import { toStockEngineInputs } from "@/domain/portfolio/snapshot";
 import { applyTransactionToHoldings } from "@/domain/portfolio/apply-transaction";
 import { buildOnboardingBaselineScorecard } from "@/domain/playbook/onboarding-scorecard";
 import { buildOnboardedActionZoneTemplates } from "@/domain/playbook/action-zone-templates";
+import { deriveFundamentalsModelFit } from "@/domain/playbook/fundamentals-model-fit";
 import { unityActionZones, unityScorecard, unityTimeline } from "@/data/unity-seed";
 import { PlaybookClientShell } from "@/components/playbook/PlaybookClientShell";
 import { PlaybookOnboardingOverlay } from "@/components/playbook/onboarding/PlaybookOnboardingOverlay";
@@ -52,18 +53,17 @@ interface Props {
   // name from.
   fallbackName: string;
   // No live quote/USD/daily-change provider exists in the new model
-  // (brief §9 — pricing boundary explicitly out of scope). These fields
-  // have no home there; they're passed through unchanged from the legacy
-  // seed purely to keep the Hero Stack's display identical — marketCurrency
-  // is paired with primaryPriceUsd (it only ever labels that one figure,
-  // see StockHeader), so it must stay "USD", not the new model's EUR-only
-  // nativeCurrency, or the label and figure would mismatch. Neither field
-  // feeds the engine or any calculation — market.executionPriceEur below
-  // is the real, live, one-source-of-truth price. Known, pre-existing
-  // limitation carried forward unchanged by H.4: every stock's Hero Stack
-  // shows this same Unity-sourced USD/daily-change display data, since no
-  // per-stock provider exists yet — not something H.4 was asked to fix.
-  legacyMarketColor: { primaryPriceUsd: number; marketCurrency: string; dailyChangePct: number };
+  // (brief §9 — pricing boundary explicitly out of scope). Undefined for
+  // every stock except Unity, which alone has real hand-seeded data for
+  // it (unity-seed.ts) — the caller (page.tsx) only supplies this for
+  // Unity. Neither field feeds the engine or any calculation —
+  // market.executionPriceEur below is the real, live, one-source-of-truth
+  // price. Phase H.6 hardening: previously passed through unconditionally
+  // for every ticker, so a non-Unity stock's Hero Stack showed Unity's
+  // literal USD price and daily change as if it were its own (H.6 audit
+  // finding — fixed here; see StockHeader.tsx for the corresponding
+  // "omit rather than fabricate" rendering change).
+  legacyMarketColor?: { primaryPriceUsd: number; marketCurrency: string; dailyChangePct: number };
   initialMomentumResult?: MomentumScoreResult;
   initialFundamentalsResult?: FundamentalsScoreResult;
 }
@@ -197,14 +197,14 @@ export function StockDetailClientShell({
       name: holdingSnapshot.instrument.name,
       ticker: holdingSnapshot.instrument.ticker ?? "",
       exchange: holdingSnapshot.instrument.exchange ?? "",
-      marketCurrency: legacyMarketColor.marketCurrency,
+      marketCurrency: legacyMarketColor?.marketCurrency,
       isin: holdingSnapshot.instrument.isin,
       executionCurrency: holdingSnapshot.instrument.nativeCurrency,
     },
     market: {
       executionPriceEur,
-      primaryPriceUsd: legacyMarketColor.primaryPriceUsd,
-      dailyChangePct: legacyMarketColor.dailyChangePct,
+      primaryPriceUsd: legacyMarketColor?.primaryPriceUsd,
+      dailyChangePct: legacyMarketColor?.dailyChangePct,
       updatedAt: holdingSnapshot.priceNative.asOf,
     },
     position: engineInputs.position,
@@ -213,6 +213,9 @@ export function StockDetailClientShell({
   };
 
   const isUnity = config.instrumentId === UNITY_INSTRUMENT_ID;
+  // Post-Phase-H Trust Cleanup (docs/post-phase-h-product-review.md F4)
+  // — same isUnity signal already used above, never a new classifier.
+  const fundamentalsModelFit = deriveFundamentalsModelFit(isUnity);
   const initialScorecard: Scorecard = isUnity ? unityScorecard : buildOnboardingBaselineScorecard();
   const initialZones = isUnity
     ? unityActionZones
@@ -249,6 +252,8 @@ export function StockDetailClientShell({
       onTransaction={handleTransaction}
       initialMomentumResult={initialMomentumResult}
       initialFundamentalsResult={initialFundamentalsResult}
+      showHandAuthoredThesisContent={isUnity}
+      fundamentalsModelFit={fundamentalsModelFit}
     />
   );
 }

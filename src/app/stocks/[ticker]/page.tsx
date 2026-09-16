@@ -17,10 +17,13 @@ export default async function StockPlaybookPage({
   // the right state (Hero Stack / No Playbook / Playbook unavailable /
   // not found). This route no longer 404s on a missing config.
   //
-  // The static seed lookup below is used ONLY to recover Unity's existing
+  // The static seed lookup below is used to recover Unity's existing
   // benchmark for the live momentum fetch (a config-dependent value the
-  // server genuinely cannot get any other way) and a display-name
-  // fallback — never to gate whether this page renders.
+  // server genuinely cannot get any other way), a display-name fallback,
+  // and (Phase H.6 hardening) as the "is this Unity" signal for
+  // legacyMarketColor below — stockPlaybookConfigsSeed contains only
+  // Unity's config, so staticConfig is defined if and only if this is
+  // Unity. Never used to gate whether this page renders.
   const seedHolding = holdingsSeed.find((h) => h.instrument.ticker === ticker);
   const staticConfig = seedHolding
     ? stockPlaybookConfigsSeed.find((c) => c.instrumentId === seedHolding.instrument.id)
@@ -47,11 +50,22 @@ export default async function StockPlaybookPage({
     <StockDetailClientShell
       ticker={ticker}
       fallbackName={seedHolding?.instrument.name ?? ticker}
-      legacyMarketColor={{
-        primaryPriceUsd: unitySeed.market.primaryPriceUsd,
-        marketCurrency: unitySeed.security.marketCurrency,
-        dailyChangePct: unitySeed.market.dailyChangePct,
-      }}
+      // Phase H.6 hardening — only Unity has real seed data for this
+      // (see StockDetailClientShell's Props comment); every other stock
+      // gets undefined, and StockHeader omits the line rather than
+      // fabricating one.
+      legacyMarketColor={
+        staticConfig &&
+        unitySeed.market.primaryPriceUsd !== undefined &&
+        unitySeed.market.dailyChangePct !== undefined &&
+        unitySeed.security.marketCurrency !== undefined
+          ? {
+              primaryPriceUsd: unitySeed.market.primaryPriceUsd,
+              marketCurrency: unitySeed.security.marketCurrency,
+              dailyChangePct: unitySeed.market.dailyChangePct,
+            }
+          : undefined
+      }
       initialMomentumResult={initialMomentumResult}
       initialFundamentalsResult={initialFundamentalsResult}
     />
