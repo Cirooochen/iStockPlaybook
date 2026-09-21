@@ -33,13 +33,13 @@ export function PlaybookStatusBanner({ seed, stance, thesisHealth }: Props) {
   const health = thesisHealthLabel[thesisHealth];
 
   return (
-    <div className="bg-white rounded-lg border border-stone-200 p-6 mb-6">
-      <div className="mb-4">
+    <div className="mb-6 pb-6 border-b border-stone-200">
+      <div className="mb-2">
         <p className="text-xs font-semibold text-stone-400 uppercase tracking-widest mb-2">
           Playbook
         </p>
         <div className="flex items-center gap-3 mb-1">
-          <h2 className="text-xl font-bold text-stone-900 tracking-tight">
+          <h2 className="text-lg font-bold text-stone-900 tracking-tight">
             {stanceDisplayLabel[stance]}
           </h2>
           <span

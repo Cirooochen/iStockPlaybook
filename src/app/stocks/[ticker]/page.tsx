@@ -1,9 +1,5 @@
-import { unitySeed } from "@/data/unity-seed";
-import { holdingsSeed } from "@/data/holdings-seed";
-import { stockPlaybookConfigsSeed } from "@/data/stock-playbook-seed";
 import { StockDetailClientShell } from "@/components/playbook/StockDetailClientShell";
-import { fetchLiveMomentumResult } from "@/infrastructure/market-data/twelve-data/orchestration";
-import { fetchLiveFundamentalsResult } from "@/infrastructure/market-data/sec-edgar/orchestration";
+import { fetchStockPageLiveData } from "@/infrastructure/market-data/stock-page-orchestration";
 
 export default async function StockPlaybookPage({
   params,
@@ -11,63 +7,73 @@ export default async function StockPlaybookPage({
   const { ticker } = await params;
 
   // Phase H.4 — whether this ticker has a holding, and whether that
-  // holding has a Playbook config, is now live, client-side state
+  // holding has a Playbook config, is live, client-side state
   // (usePortfolioState, localStorage) that a Server Component cannot see
   // — StockDetailClientShell resolves both by ticker itself and renders
   // the right state (Hero Stack / No Playbook / Playbook unavailable /
-  // not found). This route no longer 404s on a missing config.
+  // not found). This route never 404s on a missing config.
   //
-  // The static seed lookup below is used to recover Unity's existing
-  // benchmark for the live momentum fetch (a config-dependent value the
-  // server genuinely cannot get any other way), a display-name fallback,
-  // and (Phase H.6 hardening) as the "is this Unity" signal for
-  // legacyMarketColor below — stockPlaybookConfigsSeed contains only
-  // Unity's config, so staticConfig is defined if and only if this is
-  // Unity. Never used to gate whether this page renders.
-  const seedHolding = holdingsSeed.find((h) => h.instrument.ticker === ticker);
-  const staticConfig = seedHolding
-    ? stockPlaybookConfigsSeed.find((c) => c.instrumentId === seedHolding.instrument.id)
-    : undefined;
-
-  // Server-only (this file has no "use client" directive — see
-  // docs/phase-d2-live-momentum-engine-orchestration-design.md §1):
-  // TWELVE_DATA_API_KEY/SEC_EDGAR_USER_AGENT never reach
-  // PlaybookClientShell's browser bundle. Neither call ever throws —
-  // each resolves to undefined on any failure, which
-  // PlaybookClientShell/runDecisionEngine already treat identically to
-  // "no live data available" (Phase D.0/D.1's existing fallback,
-  // extended to Fundamentals by Phase E.3/E.4/E.8). Fetched for every
-  // ticker, not just configured ones, so a newly onboarded stock's
-  // Analyze/Review step (H.3) has real evidence to show, not just its
-  // eventual confirmed Playbook page.
+  // v0.1 real-data cleanup — this used to also resolve a static seed
+  // holding/config by ticker string match, for a momentum benchmark ID,
+  // a display-name fallback, and a legacy secondary-market price line.
+  // Removed: a Server Component genuinely cannot see the user's real
+  // localStorage holdings, so that lookup could only ever resolve
+  // against the hardcoded seed — a real user's own "U" holding would
+  // never match it (onboarded holdings get a random instrument id, not
+  // the literal ticker), while the seed's fake "U" always would. No
+  // client-readable per-user benchmark config exists to replace it with;
+  // every stock's momentum now honestly has no benchmark (relative
+  // strength: NOT_APPLICABLE) unless a future phase wires one from real,
+  // client-visible config. `fallbackName` is simply the ticker now — the
+  // Stock Detail page's own live holding data supplies the real display
+  // name once resolved client-side.
   const checkedAt = new Date().toISOString();
-  const [initialMomentumResult, initialFundamentalsResult] = await Promise.all([
-    fetchLiveMomentumResult(ticker, staticConfig?.strategy.benchmarkInstrumentId, checkedAt),
-    fetchLiveFundamentalsResult(ticker, checkedAt),
-  ]);
+  // Phase I.3 found a real Phase I.1 mistake here (docs/phase-i-minimum-
+  // research-evidence.md §12): this used to pass
+  // `seedHolding?.instrument.nativeCurrency` as a reporting-currency
+  // argument, but that field is the PORTFOLIO's own cost-basis/tracking
+  // currency (e.g. a European user's EUR-denominated holding record for
+  // a US stock), not the company's SEC reporting currency — Unity proves
+  // these differ (its holding is tracked in EUR while Unity itself
+  // reports to the SEC in USD). Phase I.3.1 (§13) removed the whole
+  // notion of a caller-supplied reporting currency: fetchLiveFundamentalsResult
+  // no longer takes one at all — mapEdgarCompanyFacts now discovers each
+  // filer's real reporting currency itself, from its own target financial
+  // concepts, correctly handling both Unity (USD) and ASML (EUR) without
+  // this call site knowing anything about currency.
+  // v0.1 stabilization — a single consolidated fetch (Momentum +
+  // Fundamentals + Valuation used to be three independent calls here,
+  // duplicating both the SEC EDGAR fundamentals fetch and the Twelve Data
+  // quote/price-series fetch; live-confirmed to trip Twelve Data's
+  // free-tier per-minute credit cap on a single page load). See
+  // stock-page-orchestration.ts for the consolidation itself — nothing
+  // about what each result MEANS changed, only how many network calls
+  // produce them.
+  const { momentumResult: initialMomentumResult, fundamentalsFetch, evRevenueCheckpoints: initialEvRevenueCheckpoints } =
+    await fetchStockPageLiveData(ticker, undefined, checkedAt);
+  // Phase I.5 — fetchLiveFundamentalsResult now returns the scored result
+  // alongside the raw periods/periodType from the SAME fetch (the
+  // plumbing gap docs/phase-i-minimum-research-evidence.md §13/§14
+  // identified: RawFundamentalsData used to be discarded after scoring).
+  // `initialFundamentalsResult` is unpacked to the exact same
+  // FundamentalsScoreResult shape every existing consumer already expects
+  // (decision engine, SignalScorecard, Business Trajectory) — nothing
+  // downstream of that prop changes. periods/periodType are new,
+  // additional props consumed only by PlaybookClientShell's Recent
+  // Changes card.
+  const initialFundamentalsResult = fundamentalsFetch?.scoreResult;
+  const initialFundamentalsPeriods = fundamentalsFetch?.periods;
+  const initialFundamentalsPeriodType = fundamentalsFetch?.periodType;
 
   return (
     <StockDetailClientShell
       ticker={ticker}
-      fallbackName={seedHolding?.instrument.name ?? ticker}
-      // Phase H.6 hardening — only Unity has real seed data for this
-      // (see StockDetailClientShell's Props comment); every other stock
-      // gets undefined, and StockHeader omits the line rather than
-      // fabricating one.
-      legacyMarketColor={
-        staticConfig &&
-        unitySeed.market.primaryPriceUsd !== undefined &&
-        unitySeed.market.dailyChangePct !== undefined &&
-        unitySeed.security.marketCurrency !== undefined
-          ? {
-              primaryPriceUsd: unitySeed.market.primaryPriceUsd,
-              marketCurrency: unitySeed.security.marketCurrency,
-              dailyChangePct: unitySeed.market.dailyChangePct,
-            }
-          : undefined
-      }
+      fallbackName={ticker}
       initialMomentumResult={initialMomentumResult}
       initialFundamentalsResult={initialFundamentalsResult}
+      initialFundamentalsPeriods={initialFundamentalsPeriods}
+      initialFundamentalsPeriodType={initialFundamentalsPeriodType}
+      initialEvRevenueCheckpoints={initialEvRevenueCheckpoints}
     />
   );
 }

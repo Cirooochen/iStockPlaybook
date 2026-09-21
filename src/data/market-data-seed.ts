@@ -1,3 +1,11 @@
+// v0.1 real-data cleanup — no longer reachable from production runtime
+// (use-portfolio-state.ts merges manualPrices over an empty quotes map,
+// never this file). Kept as a test-only fixture — do not re-wire this
+// into any production path; the Portfolio page's real v0.1 price source
+// is manualPrices only (src/domain/portfolio/manual-prices.ts), and a
+// holding with no manual price is honestly MISSING, never a fabricated
+// quote.
+//
 // Seed quotes/FX for the Real Portfolio Snapshot — Phase G.2.
 // derivePortfolioSnapshot (src/domain/portfolio/snapshot.ts) takes
 // quotes/FX as pure caller-supplied input; no live quote/FX provider is

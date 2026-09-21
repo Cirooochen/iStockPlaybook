@@ -1,3 +1,9 @@
+// v0.1 real-data cleanup — no longer reachable from production runtime
+// (use-portfolio-state.ts starts configs empty). Kept as a test-only
+// fixture (onboarding-integration.test.ts, snapshot.test.ts,
+// stock-concentration-view.test.ts) — do not re-wire this into any
+// production path.
+//
 // Real Portfolio Stock Playbook config seed — Phase G.1 (design §3, step 3).
 // Joins unity-seed.ts's strategy/playbook to holdings-seed.ts's Unity
 // holding by instrument identity (design §1.2b) rather than embedding one

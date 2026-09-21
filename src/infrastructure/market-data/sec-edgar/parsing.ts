@@ -77,20 +77,34 @@ function dedupeByLatestFiled(facts: SecEdgarXbrlFact[], keyOf: (fact: SecEdgarXb
   return [...latestByKey.values()];
 }
 
+// design doc §4.1/§4.3 — the filter half of extractDurationFacts, kept as
+// its own function (Phase I.4A.1,
+// docs/phase-i-minimum-research-evidence.md §16.6) so mappers.ts's
+// identity resolution can dedupe this SAME filtered-but-undeduped set by
+// EARLIEST filed instead of extractDurationFacts's own latest-filed rule
+// below — see mappers.ts's toEarliestByEnd for why a period's IDENTITY
+// (filingDate/accn) needs the opposite dedup rule from its reported
+// VALUE. Exported for that reason alone; behaves identically to before
+// as an internal step of extractDurationFacts.
+export function filterDurationFacts(units: SecEdgarXbrlFact[]): SecEdgarXbrlFact[] {
+  return units.filter(
+    (fact) => isUsableFact(fact) && fact.fp !== "FY" && typeof fact.start === "string" && isSingleQuarterDuration(fact.start, fact.end as string)
+  );
+}
+
 // design doc §4.1/§4.3/§4.4 — for duration-type concepts (revenue,
 // operating income, operating cash flow, capex): discard non-`fp`-Q
 // facts (§4.3's FY exclusion), discard facts without a valid
 // single-quarter duration (§4.1's cumulative-vs-quarter filter), then
 // dedupe by (start, end) keeping the latest-filed (§4.4).
 export function extractDurationFacts(units: SecEdgarXbrlFact[]): SecEdgarXbrlFact[] {
-  const filtered = units.filter(
-    (fact) =>
-      isUsableFact(fact) &&
-      fact.fp !== "FY" &&
-      typeof fact.start === "string" &&
-      isSingleQuarterDuration(fact.start, fact.end as string)
-  );
-  return dedupeByLatestFiled(filtered, (fact) => `${fact.start}|${fact.end}`);
+  return dedupeByLatestFiled(filterDurationFacts(units), (fact) => `${fact.start}|${fact.end}`);
+}
+
+// Phase I.4A.1 — the filter half of extractInstantFacts, exported for the
+// same reason as filterDurationFacts above.
+export function filterInstantFacts(units: SecEdgarXbrlFact[]): SecEdgarXbrlFact[] {
+  return units.filter((fact) => isUsableFact(fact) && fact.fp !== "FY");
 }
 
 // design doc §4.2/§4.3/§4.4 — for instant/balance-sheet concepts (cash,
@@ -101,8 +115,24 @@ export function extractDurationFacts(units: SecEdgarXbrlFact[]): SecEdgarXbrlFac
 // balance appearing once as its own quarter's figure and again as a
 // later quarter's comparative prior-period figure).
 export function extractInstantFacts(units: SecEdgarXbrlFact[]): SecEdgarXbrlFact[] {
-  const filtered = units.filter((fact) => isUsableFact(fact) && fact.fp !== "FY");
-  return dedupeByLatestFiled(filtered, (fact) => fact.end as string);
+  return dedupeByLatestFiled(filterInstantFacts(units), (fact) => fact.end as string);
+}
+
+// Phase I.4A.1 — the filter half of extractAnnualInstantFacts, exported
+// for the same reason as filterDurationFacts above.
+export function filterAnnualInstantFacts(units: SecEdgarXbrlFact[]): SecEdgarXbrlFact[] {
+  return units.filter((fact) => isUsableFact(fact) && fact.fp === "FY");
+}
+
+// Phase I.2 — the annual-cadence counterpart to extractInstantFacts
+// above: requires `fp === "FY"` instead of excluding it. Used only when
+// quarterly extraction found zero periods at all (mappers.ts) — a 20-F
+// filer with no 10-Q equivalent has no other `fp` value for its
+// instant/balance-sheet facts, so extractInstantFacts's own FY-exclusion
+// (there, to disambiguate a *quarterly* filer's comparative-figure
+// duplicates) would otherwise reject every one of them.
+export function extractAnnualInstantFacts(units: SecEdgarXbrlFact[]): SecEdgarXbrlFact[] {
+  return dedupeByLatestFiled(filterAnnualInstantFacts(units), (fact) => fact.end as string);
 }
 
 // design doc (E.7C) §1/§4.4 — the 6-month cumulative-YTD tier: retained
@@ -134,20 +164,27 @@ export function extractNineMonthCumulativeFacts(units: SecEdgarXbrlFact[]): SecE
   return dedupeByLatestFiled(filtered, (fact) => `${fact.start}|${fact.end}`);
 }
 
-// design doc (E.7C) §1/§4.4 — the annual (FY) cumulative tier: retained
-// as a derivation input (Q4 = FY - 9M), never itself emitted as a
-// period. Requires `fp === "FY"` in addition to the duration window
-// (see the constant's own comment above) — the one tier where duration
-// alone isn't the sole signal.
-export function extractFiscalYearCumulativeFacts(units: SecEdgarXbrlFact[]): SecEdgarXbrlFact[] {
-  const filtered = units.filter(
+// Phase I.4A.1 — the filter half of extractFiscalYearCumulativeFacts,
+// exported for the same reason as filterDurationFacts above. This is the
+// annual field ASML (this fix's live-verified case) actually uses for
+// revenue/operatingIncome/cash/debt identity.
+export function filterFiscalYearCumulativeFacts(units: SecEdgarXbrlFact[]): SecEdgarXbrlFact[] {
+  return units.filter(
     (fact) =>
       isUsableFact(fact) &&
       fact.fp === "FY" &&
       typeof fact.start === "string" &&
       isInRange(durationDays(fact.start, fact.end as string), FISCAL_YEAR_MIN_DAYS, FISCAL_YEAR_MAX_DAYS)
   );
-  return dedupeByLatestFiled(filtered, (fact) => `${fact.start}|${fact.end}`);
+}
+
+// design doc (E.7C) §1/§4.4 — the annual (FY) cumulative tier: retained
+// as a derivation input (Q4 = FY - 9M), never itself emitted as a
+// period. Requires `fp === "FY"` in addition to the duration window
+// (see the constant's own comment above) — the one tier where duration
+// alone isn't the sole signal.
+export function extractFiscalYearCumulativeFacts(units: SecEdgarXbrlFact[]): SecEdgarXbrlFact[] {
+  return dedupeByLatestFiled(filterFiscalYearCumulativeFacts(units), (fact) => `${fact.start}|${fact.end}`);
 }
 
 function isInRange(days: number | null, min: number, max: number): boolean {

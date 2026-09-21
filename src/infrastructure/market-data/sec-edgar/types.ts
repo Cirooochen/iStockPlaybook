@@ -26,11 +26,11 @@ export interface SecEdgarXbrlFact {
   frame?: string; // e.g. "CY2025Q4I" — present on some comparative/frame-aligned facts
 }
 
-// One XBRL concept (e.g. "OperatingIncomeLoss") within facts["us-gaap"].
-// `units` is keyed by unit type ("USD", "shares", ...) — design doc §6
-// requires reading the "USD" key explicitly, never an arbitrary first
-// key, since non-USD-unit concepts (e.g. share counts) share this same
-// payload.
+// One XBRL concept (e.g. "OperatingIncomeLoss") within facts["us-gaap"]
+// or facts["dei"]. `units` is keyed by unit type ("USD", "EUR", "shares",
+// ...) — design doc §6 requires reading one explicit currency unit key at
+// a time, never an arbitrary first key, since non-currency-unit concepts
+// (e.g. share counts) share this same payload shape.
 export interface SecEdgarXbrlConcept {
   label?: string;
   description?: string;
@@ -39,13 +39,19 @@ export interface SecEdgarXbrlConcept {
 
 // GET https://data.sec.gov/api/xbrl/companyfacts/CIK{10-digit}.json —
 // every XBRL concept SEC has for this filer, across every namespace it
-// has ever tagged with. Only "us-gaap" is read by this adapter (design
-// doc §2/§3's six fields are all us-gaap-namespaced concepts).
+// has ever tagged with. "us-gaap" carries the six financial-statement
+// fields (design doc §2/§3); "dei" (Document and Entity Information) is
+// read only for shares outstanding (Phase I.1) — it is mandatory for
+// every SEC XBRL filer regardless of accounting standard, unlike
+// "us-gaap"'s financial facts, which some foreign private issuers report
+// in a different currency (see mappers.ts's reporting-currency
+// parameter) but still tag under this same namespace.
 export interface SecEdgarCompanyFactsResponse {
   cik?: number; // unpadded, e.g. 1810806 — instrumentId is derived from this (design doc §1)
   entityName?: string;
   facts?: {
     "us-gaap"?: Record<string, SecEdgarXbrlConcept | undefined>;
+    dei?: Record<string, SecEdgarXbrlConcept | undefined>;
   };
 }
 

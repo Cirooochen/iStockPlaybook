@@ -59,6 +59,17 @@ export interface RawFundamentalsPeriod {
   // present; optional only because some historical/backfilled records
   // may not carry it, never because it's unimportant.
   filingDate?: string;
+  // Phase I.4A — the SEC accession number of the filing this period's
+  // representative fact came from (SecEdgarXbrlFact.accn). The join key
+  // future Valuation Context work uses to align this period's own
+  // historical shares-outstanding fact (RawFundamentalsData
+  // .sharesOutstandingByAccession) — verified directly against live SEC
+  // data (docs/phase-i-minimum-research-evidence.md's 0.30.0 feasibility
+  // spike) that a period's dei:EntityCommonStockSharesOutstanding fact
+  // shares the identical accn as that period's revenue/operatingIncome
+  // facts, for both Unity and ASML. Optional only because some historical
+  // records may not carry it, never because it's unimportant.
+  accn?: string;
   revenue: DataField<number>;
   operatingIncome: DataField<number>;
   operatingCashFlow: DataField<number>;
@@ -80,6 +91,56 @@ export interface RawFundamentalsData {
   periods: RawFundamentalsPeriod[]; // as much history as the provider returns, oldest-to-newest (by periodEndDate); length not fixed by this contract
   guidanceEvidence: DataField<GuidanceEvidence>; // AI-extracted, not provider-supplied — see GuidanceEvidence
   checkedAt: string; // when this fetch attempt happened, even if everything inside is MISSING
+  // Phase I.1, corrected by Phase I.3.1 — the ISO 4217-style currency
+  // every currency-denominated DataField in `periods` (revenue,
+  // operatingIncome, operatingCashFlow, capitalExpenditures,
+  // cashAndEquivalents, totalDebt) is expressed in. One value for the
+  // whole payload (a filer reports in one currency, same as periodType)
+  // — never per-period. This is the authoritative input any future
+  // calculation combining these figures with a currency-denominated
+  // price MUST check before combining them — see
+  // src/domain/market-data/currency-integrity.ts.
+  //
+  // `undefined` means the mapper could not establish a single, trustworthy
+  // currency for this payload's own target financial concepts — either
+  // none of them had any usable data (nothing to derive from), or more
+  // than one currency appeared across them (an internally inconsistent
+  // payload). Both cases leave `periods` empty too; this is never guessed
+  // from a fixed candidate order, a majority, or the instrument's ticker.
+  //
+  // Phase I.1 originally made this a caller-supplied parameter, reasoning
+  // an instrument's own "reporting currency" was already known — that
+  // was wrong (docs/phase-i-minimum-research-evidence.md §12/§13):
+  // Instrument.nativeCurrency (src/types/portfolio.ts) is the PORTFOLIO's
+  // own cost-basis/tracking currency, a different concept, and nothing
+  // else in this codebase reliably knew a filer's actual SEC reporting
+  // currency in advance. The mapper now DISCOVERS this value itself, from
+  // the currency units actually present on the specific financial
+  // concepts it already reads — see mappers.ts's discoverReportingCurrency.
+  reportingCurrency: string | undefined;
+  // Phase I.1 — the most recently reported shares-outstanding fact (SEC
+  // EDGAR's "dei" namespace, not currency-denominated — unit is a share
+  // count). A single "latest known" fact, not a historical series —
+  // aligning a fuller shares-outstanding history against fiscal periods
+  // is deferred to the future Valuation Context work this document does
+  // not yet implement. MISSING, never fabricated, when no such fact
+  // resolves (e.g. today, for any filer whose facts are exclusively
+  // annual/FY-tagged — see the mapper's own doc comment).
+  sharesOutstanding: DataField<number>;
+  // Phase I.4A — every dei:EntityCommonStockSharesOutstanding fact this
+  // payload carries, keyed by its own filing's SEC accession number
+  // (`accn`) rather than collapsed to a single latest value. This is the
+  // historical shares-outstanding series a future Valuation Context
+  // checkpoint needs (see RawFundamentalsPeriod.accn) — deliberately
+  // keyed by accn, not periodEndDate: a shares-outstanding fact's "as of"
+  // date is the filing's cover-page date, not a fiscal period end (same
+  // reasoning as `sharesOutstanding` above), so an accession-number join
+  // is the only non-arbitrary alignment key (verified live for both
+  // Unity and ASML — docs/phase-i-minimum-research-evidence.md's 0.30.0
+  // feasibility spike). A plain object, not a Map, so this stays
+  // JSON-serializable across a Server Component boundary. Empty when no
+  // dei fact resolves — never fabricated.
+  sharesOutstandingByAccession: Record<string, DataField<number>>;
 }
 
 // design doc §3.2, spec §12/§29 — the AI-extraction OUTPUT contract,

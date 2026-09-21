@@ -43,6 +43,9 @@ function rawData(overrides: Partial<RawFundamentalsData> = {}): RawFundamentalsD
     periods: [],
     guidanceEvidence: { status: "MISSING" },
     checkedAt: "2026-09-10T00:00:00.000Z",
+    reportingCurrency: "USD",
+    sharesOutstanding: { status: "MISSING" },
+    sharesOutstandingByAccession: {},
     ...overrides,
   };
 }
@@ -136,6 +139,52 @@ describe("GROWTH_SOFTWARE_TEMPLATE — per-dimension anchor wiring", () => {
     const result = componentByKey("balanceSheet").score(rawData({ periods }));
     expect(result.status).toBe("AVAILABLE");
     if (result.status === "AVAILABLE") expect(result.score100).toBeCloseTo(50, 6);
+  });
+});
+
+describe("GROWTH_SOFTWARE_TEMPLATE — Phase I.2 ANNUAL cadence threading", () => {
+  it("revenueGrowth uses a 1-period offset under ANNUAL cadence — 2 annual periods, not 5, is enough", () => {
+    const periods = [period("FY2024", { revenue: available(1000) }), period("FY2025", { revenue: available(1100) })];
+    const result = componentByKey("revenueGrowth").score(rawData({ periods, periodType: "ANNUAL" }));
+    expect(result.status).toBe("AVAILABLE");
+    if (result.status === "AVAILABLE") expect(result.score100).toBeCloseTo(50, 6); // same 10% YoY anchor as the QUARTERLY test above
+  });
+
+  it("the SAME 2 periods are MISSING under the template's default QUARTERLY assumption — proves periodType is genuinely threaded, not ignored", () => {
+    const periods = [period("FY2024", { revenue: available(1000) }), period("FY2025", { revenue: available(1100) })];
+    const result = componentByKey("revenueGrowth").score(rawData({ periods })); // periodType defaults to QUARTERLY
+    expect(result).toEqual({ status: "MISSING" });
+  });
+
+  it("growthTrend uses a 1-period offset under ANNUAL cadence — 3 annual periods, not 6, is enough", () => {
+    const periods = [
+      period("FY2023", { revenue: available(1000) }),
+      period("FY2024", { revenue: available(1000) }), // YoY vs FY2023 = 0
+      period("FY2025", { revenue: available(1000) }), // YoY vs FY2024 = 0 -> delta 0 (neutral)
+    ];
+    const result = componentByKey("growthTrend").score(rawData({ periods, periodType: "ANNUAL" }));
+    expect(result.status).toBe("AVAILABLE");
+    if (result.status === "AVAILABLE") expect(result.score100).toBeCloseTo(50, 6);
+  });
+
+  it("balanceSheet's TTM-revenue denominator is the single annual period's own revenue, not a 4-period sum", () => {
+    const periods = [period("FY2025", { revenue: available(1000), cashAndEquivalents: available(100), totalDebt: available(100) })];
+    const result = componentByKey("balanceSheet").score(rawData({ periods, periodType: "ANNUAL" }));
+    expect(result.status).toBe("AVAILABLE");
+    if (result.status === "AVAILABLE") expect(result.score100).toBeCloseTo(50, 6); // net cash == net debt -> neutral
+  });
+
+  it("marginTrend/operatingMargin/fcfMargin are unaffected by periodType — cadence-agnostic, single-most-recent-period comparisons", () => {
+    const periods = [
+      period("FY2024", { operatingIncome: available(100), revenue: available(1000) }),
+      period("FY2025", { operatingIncome: available(100), revenue: available(1000) }),
+    ];
+    expect(componentByKey("marginTrend").score(rawData({ periods, periodType: "ANNUAL" }))).toEqual(
+      componentByKey("marginTrend").score(rawData({ periods, periodType: "QUARTERLY" }))
+    );
+    expect(componentByKey("operatingMargin").score(rawData({ periods, periodType: "ANNUAL" }))).toEqual(
+      componentByKey("operatingMargin").score(rawData({ periods, periodType: "QUARTERLY" }))
+    );
   });
 });
 

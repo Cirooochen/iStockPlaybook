@@ -23,31 +23,52 @@
 // ── Input contract (must hold for every function in this file) ──────────
 // `periods` is assumed sorted ASCENDING by period (oldest first),
 // mirroring RawMarketData.ohlcv's convention (RawFundamentalsData's own
-// doc comment). Absent any periodType/cadence field on
-// RawFundamentalsPeriod, every function here assumes QUARTERLY reporting
-// — "same period prior year" = 4 entries back, "trailing twelve months"
-// = the most recent 4 entries. This is a raw-data-shape assumption, not
-// a model choice — design doc §3.3 already named this as the primary
-// case and pushed annual-cadence support to "a data-provider question,"
-// not resolved here.
+// doc comment).
 // No partial computation: if any single required field across the
 // required periods is MISSING, the whole result is MISSING — no
 // skipping, no backfilling, matching momentum.ts's own established
 // convention.
+//
+// Phase I.2 — cadence awareness. Design doc §3.3 originally pushed
+// annual-cadence support to "a data-provider question, not resolved
+// here"; docs/phase-i-minimum-research-evidence.md §9 resolved it:
+// computeRevenueGrowth/computeTrailingTwelveMonthRevenue/
+// computeNetCashToRevenue/computeGrowthTrend take an OPTIONAL
+// `periodType` (default "QUARTERLY", preserving every existing caller's
+// behavior exactly) because they assume a fixed number of array entries
+// = one year — 4 for quarterly, 1 for annual (each entry already spans a
+// full year). Using the quarterly offset unchanged on annual periods
+// would not fail safely; it would silently compare against 4 YEARS ago
+// and mislabel it "prior year" — a wrong answer, not just a missing one.
+// computeOperatingMargin/computeFreeCashFlow/computeMarginTrend/
+// computeFcfMargin take NO periodType — each looks only at the single
+// most-recent period, a comparison that's equally meaningful whichever
+// cadence that period represents, so no parameter is needed or added.
 import type { DataField } from "@/types/market-data";
-import type { RawFundamentalsPeriod, GuidanceEvidence } from "@/types/fundamentals";
+import type { FundamentalsPeriodType, RawFundamentalsPeriod, GuidanceEvidence } from "@/types/fundamentals";
 
 const QUARTERS_PER_YEAR = 4;
+
+// How many array entries back is "the same period, one year ago" — 4 for
+// quarterly (unchanged), 1 for annual (each entry already IS a year).
+function periodsPerYear(periodType: FundamentalsPeriodType): number {
+  return periodType === "ANNUAL" ? 1 : QUARTERS_PER_YEAR;
+}
 
 // Revenue Growth — design doc §3 table: "current-period revenue,
 // same-period-prior-year revenue." A base of exactly 0 has no meaningful
 // growth rate (division by zero) and is reported MISSING, not +/-Infinity
-// or a fabricated number.
-export function computeRevenueGrowth(periods: RawFundamentalsPeriod[]): DataField<number> {
-  if (periods.length < QUARTERS_PER_YEAR + 1) return { status: "MISSING" };
+// or a fabricated number. Phase I.2: `periodType` selects how many array
+// entries back "prior year" is — see this file's top-of-file doc comment.
+export function computeRevenueGrowth(
+  periods: RawFundamentalsPeriod[],
+  periodType: FundamentalsPeriodType = "QUARTERLY"
+): DataField<number> {
+  const offset = periodsPerYear(periodType);
+  if (periods.length < offset + 1) return { status: "MISSING" };
 
   const current = periods[periods.length - 1];
-  const priorYear = periods[periods.length - 1 - QUARTERS_PER_YEAR];
+  const priorYear = periods[periods.length - 1 - offset];
   if (current.revenue.status === "MISSING" || priorYear.revenue.status === "MISSING") {
     return { status: "MISSING" };
   }
@@ -107,7 +128,23 @@ export function computeFreeCashFlow(periods: RawFundamentalsPeriod[]): DataField
 // is MISSING, the whole result is MISSING — a 3-quarter sum is not a
 // meaningful stand-in for a 4-quarter one, matching momentum.ts's own
 // "no shrinking the divisor" convention for insufficient history.
-export function computeTrailingTwelveMonthRevenue(periods: RawFundamentalsPeriod[]): DataField<number> {
+// Phase I.2, ANNUAL cadence: a single annual period's revenue already
+// spans twelve months — the trailing-twelve-month figure IS that
+// period's own revenue, not a sum of four of them (which would be four
+// YEARS, not twelve months). No estimation from partial annual data
+// either way — either the current annual period's revenue is AVAILABLE
+// or the result is MISSING.
+export function computeTrailingTwelveMonthRevenue(
+  periods: RawFundamentalsPeriod[],
+  periodType: FundamentalsPeriodType = "QUARTERLY"
+): DataField<number> {
+  if (periodType === "ANNUAL") {
+    if (periods.length < 1) return { status: "MISSING" };
+    const current = periods[periods.length - 1];
+    if (current.revenue.status === "MISSING") return { status: "MISSING" };
+    return { status: "AVAILABLE", value: current.revenue.value, asOf: current.revenue.asOf };
+  }
+
   if (periods.length < QUARTERS_PER_YEAR) return { status: "MISSING" };
 
   const window = periods.slice(-QUARTERS_PER_YEAR);
@@ -127,7 +164,10 @@ export function computeTrailingTwelveMonthRevenue(periods: RawFundamentalsPeriod
 // Raw evidence + formula only — the 0-100 normalization curve for this
 // value is NOT implemented anywhere in this codebase (see this file's
 // top-of-file doc comment): spec gives no anchors for it.
-export function computeNetCashToRevenue(periods: RawFundamentalsPeriod[]): DataField<number> {
+export function computeNetCashToRevenue(
+  periods: RawFundamentalsPeriod[],
+  periodType: FundamentalsPeriodType = "QUARTERLY"
+): DataField<number> {
   if (periods.length < 1) return { status: "MISSING" };
 
   const current = periods[periods.length - 1];
@@ -135,7 +175,7 @@ export function computeNetCashToRevenue(periods: RawFundamentalsPeriod[]): DataF
     return { status: "MISSING" };
   }
 
-  const ttmRevenue = computeTrailingTwelveMonthRevenue(periods);
+  const ttmRevenue = computeTrailingTwelveMonthRevenue(periods, periodType);
   if (ttmRevenue.status === "MISSING") return { status: "MISSING" };
   if (ttmRevenue.value === 0) return { status: "MISSING" };
 
@@ -147,17 +187,23 @@ export function computeNetCashToRevenue(periods: RawFundamentalsPeriod[]): DataF
 }
 
 // Growth Trend — approved E.1B §4: a two-point delta of the already-
-// derived Revenue Growth rate, one quarter apart. Pure composition of
+// derived Revenue Growth rate, one period apart. Pure composition of
 // computeRevenueGrowth evaluated at two adjacent array cutoffs — the
 // same technique src/domain/signals/trend.ts already established for
 // computeDma200Slope (simpleMovingAverage called at two different
 // cutoffs). MISSING propagates automatically from either evaluation; no
-// new missing-data mechanism. Needs 6 periods minimum (computeRevenueGrowth
-// needs 5; evaluating it a second time on periods.slice(0, -1) needs that
-// slice to itself have 5).
-export function computeGrowthTrend(periods: RawFundamentalsPeriod[]): DataField<number> {
-  const current = computeRevenueGrowth(periods);
-  const previous = computeRevenueGrowth(periods.slice(0, -1));
+// new missing-data mechanism. QUARTERLY needs 6 periods minimum
+// (computeRevenueGrowth needs 5; evaluating it a second time on
+// periods.slice(0, -1) needs that slice to itself have 5). Phase I.2,
+// ANNUAL: needs 3 periods minimum by the same logic (computeRevenueGrowth
+// needs 2 when periodType is ANNUAL; the second evaluation needs that
+// slice to itself have 2).
+export function computeGrowthTrend(
+  periods: RawFundamentalsPeriod[],
+  periodType: FundamentalsPeriodType = "QUARTERLY"
+): DataField<number> {
+  const current = computeRevenueGrowth(periods, periodType);
+  const previous = computeRevenueGrowth(periods.slice(0, -1), periodType);
   if (current.status === "MISSING" || previous.status === "MISSING") {
     return { status: "MISSING" };
   }

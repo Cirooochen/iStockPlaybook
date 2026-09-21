@@ -7,6 +7,8 @@ import type {
   Scorecard,
   TimelineEntry,
 } from "@/types/playbook";
+import type { FundamentalsPeriodType, RawFundamentalsPeriod } from "@/types/fundamentals";
+import type { EvRevenueCheckpoint } from "@/domain/signals/valuation-checkpoints";
 
 // Domain
 import { applyBuy, applySell } from "@/domain/portfolio/accounting";
@@ -19,10 +21,13 @@ import { PrimaryActionCard } from "@/components/playbook/PrimaryActionCard";
 import { PositionAndStrategy } from "@/components/playbook/PositionAndStrategy";
 import { ActionZoneSection } from "@/components/playbook/ActionZoneSection";
 import { SignalScorecard } from "@/components/playbook/SignalScorecard";
+import { BusinessTrajectoryCard } from "@/components/playbook/BusinessTrajectoryCard";
+import { deriveBusinessTrajectory } from "@/domain/signals/business-trajectory";
+import { RecentChangesCard } from "@/components/playbook/RecentChangesCard";
+import { deriveFundamentalChangeEvidence } from "@/domain/signals/fundamental-change-evidence";
+import { ValuationContextCard } from "@/components/playbook/ValuationContextCard";
+import { deriveValuationContext } from "@/domain/signals/valuation-context";
 import type { FundamentalsModelFit } from "@/domain/playbook/fundamentals-model-fit";
-import { ThesisCard } from "@/components/playbook/ThesisCard";
-import { WhatChangesMyView } from "@/components/playbook/WhatChangesMyView";
-import { ResearchPreview } from "@/components/playbook/ResearchPreview";
 import { TimelinePreview } from "@/components/playbook/TimelinePreview";
 import { AddTransactionModal } from "@/components/playbook/AddTransactionModal";
 import { pickPrimaryZone } from "@/components/playbook/pickPrimaryZone";
@@ -63,18 +68,31 @@ interface Props {
    */
   initialFundamentalsResult?: FundamentalsScoreResult;
   /**
-   * Phase H.6 hardening. ThesisCard/WhatChangesMyView/ResearchPreview are
-   * hand-authored, Unity-only content — they import unity-seed.ts
-   * directly and take no props of their own (H.0 §5 item 2: out of
-   * Phase H's scope to build a per-stock equivalent). Before this flag,
-   * they rendered unconditionally for every stock, so a non-Unity user
-   * (e.g. an ASML holder) saw Unity's literal thesis text, catalysts, and
-   * research-document titles under their own company's Playbook — an H.6
-   * audit finding, not a mere missing feature. `false` for any stock
-   * other than Unity; the caller (StockDetailClientShell) is the only
-   * place that knows which stock this is.
+   * Phase I.5 — the raw periods/periodType behind `initialFundamentalsResult`,
+   * from the SAME server-side fetch (docs/phase-i-minimum-research-evidence.md
+   * §14 — the plumbing gap that used to discard RawFundamentalsData after
+   * scoring). Consumed only by deriveFundamentalChangeEvidence below;
+   * runDecisionEngine/EngineInput never see these — the decision engine
+   * is unaffected by this prop's existence. `undefined` when the live
+   * fetch failed or ticker resolution failed, same as the other
+   * `initial*` props; deriveFundamentalChangeEvidence honestly reports
+   * MISSING for an empty periods array, so no special-casing is needed
+   * at the call site below.
    */
-  showHandAuthoredThesisContent: boolean;
+  initialFundamentalsPeriods?: RawFundamentalsPeriod[];
+  initialFundamentalsPeriodType?: FundamentalsPeriodType;
+  /**
+   * Phase I.4B — live EV/Revenue checkpoints (Phase I.4A), from a
+   * SEPARATE server-side fetch (src/app/stocks/[ticker]/page.tsx)
+   * alongside initialFundamentalsResult. Consumed only by
+   * deriveValuationContext below; runDecisionEngine/EngineInput never
+   * see these — the decision engine is unaffected. `undefined` when the
+   * live fetch failed; an empty array when every candidate checkpoint's
+   * required evidence is genuinely missing (Unity's real shape) —
+   * deriveValuationContext already treats both as "Not available," so no
+   * special-casing is needed at the call site below.
+   */
+  initialEvRevenueCheckpoints?: EvRevenueCheckpoint[];
   /**
    * Post-Phase-H Trust Cleanup (docs/post-phase-h-product-review.md F4)
    * — the same isUnity-derived signal StockDetailClientShell already
@@ -104,7 +122,9 @@ export function PlaybookClientShell({
   onTransaction,
   initialMomentumResult,
   initialFundamentalsResult,
-  showHandAuthoredThesisContent,
+  initialFundamentalsPeriods,
+  initialFundamentalsPeriodType,
+  initialEvRevenueCheckpoints,
   fundamentalsModelFit,
 }: Props) {
   const { market, strategy, playbook, position } = seed;
@@ -131,6 +151,33 @@ export function PlaybookClientShell({
     momentumResult: initialMomentumResult,
     fundamentalsResult: initialFundamentalsResult,
   });
+
+  // Phase I.3 — a pure presentation-layer read of the engine's own
+  // already-computed fundamentalsResult (no new fetch, no engine change).
+  // See src/domain/signals/business-trajectory.ts's doc comment for why
+  // this reads growthTrend/marginTrend directly rather than adding a new
+  // aggregate score.
+  const businessTrajectory = deriveBusinessTrajectory(engine.fundamentalsResult);
+
+  // Phase I.5 — reads raw periods directly (never engine.fundamentalsResult
+  // or any scored value), per src/domain/signals/fundamental-change-evidence.ts's
+  // own doc comment on why this bypasses the scoring/template layer
+  // entirely. An empty array/default periodType when the live fetch
+  // failed correctly and honestly resolves to MISSING for both lines —
+  // computeRevenueGrowth/computeOperatingMargin already treat an empty
+  // periods array as MISSING, so no special-casing is needed here.
+  const fundamentalChangeEvidence = deriveFundamentalChangeEvidence(
+    initialFundamentalsPeriods ?? [],
+    initialFundamentalsPeriodType ?? "QUARTERLY"
+  );
+
+  // Phase I.4B — reads the live EV/Revenue checkpoints directly (never
+  // engine.fundamentalsResult), same "bypass the scoring/template layer
+  // entirely" pattern as fundamentalChangeEvidence above. A failed fetch
+  // (undefined) and a genuinely-empty result (Unity's real shape, every
+  // checkpoint dropped for missing debt) collapse to the same []
+  // input — deriveValuationContext already resolves both to MISSING.
+  const valuationContext = deriveValuationContext(initialEvRevenueCheckpoints ?? []);
 
   const {
     concentration,
@@ -229,19 +276,15 @@ export function PlaybookClientShell({
         trimSizing={trimSizing}
         firedConstraints={firedConstraints}
       />
+      <BusinessTrajectoryCard trajectory={businessTrajectory} />
+      <RecentChangesCard evidence={fundamentalChangeEvidence} />
+      <ValuationContextCard context={valuationContext} />
       <SignalScorecard
         scorecard={derivedScorecard}
         momentumResult={engine.momentumResult}
         fundamentalsResult={engine.fundamentalsResult}
         fundamentalsModelFit={fundamentalsModelFit}
       />
-      {showHandAuthoredThesisContent && (
-        <>
-          <ThesisCard />
-          <WhatChangesMyView />
-          <ResearchPreview />
-        </>
-      )}
       <TimelinePreview timeline={timeline} />
 
       <AddTransactionModal

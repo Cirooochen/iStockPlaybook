@@ -5,6 +5,789 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.35.0] — 2026-09-21
+
+### Real-Data Cleanup for Personal Dogfooding
+
+Removes every runtime path that could show fake/seed portfolio or Unity
+content to a real user, ahead of v0.1 dogfooding. Audit-first (a
+read-only pass mapped every seed touchpoint, Unity special-case, and
+localStorage persistence gap before any code changed), then implemented
+exactly what the audit found — no unrelated cleanup.
+
+1. **`src/lib/use-portfolio-state.ts`** — `holdings`/`configs` now start
+   as `[]` (no more `holdingsSeed`/`stockPlaybookConfigsSeed` initial
+   state); the `persisted.configs.length > 0` gate is gone, so an
+   explicitly-empty persisted configs array is trusted instead of
+   silently falling back to Unity's seed config forever (previously: no
+   delete-config UI meant an empty array could never be told apart from
+   "never saved," so a real user's first onboarded config was
+   permanently appended to `[unityFakeConfig, ...]` in their own
+   localStorage). `quotesSeed`/`fxRatesSeed` replaced with empty `Map`s
+   — manualPrices is the only v0.1 Portfolio valuation source now, per
+   product decision. Required **zero** domain-layer changes:
+   `deriveHoldingSnapshot`/`derivePortfolioSnapshot`
+   (`domain/portfolio/snapshot.ts`) already resolved a holding with no
+   quote to `MISSING` (never 0) and already treated an empty holdings
+   array as a valid `COMPLETE` (not `UNAVAILABLE`) valuation state —
+   both were already correctly designed for this.
+2. **`src/app/stocks/[ticker]/page.tsx`** — removed the ticker-string
+   seed lookup (`holdingsSeed.find(h => h.instrument.ticker === ticker)`)
+   that fed a momentum benchmark ID, a display-name fallback, and a
+   legacy secondary-market price line. A Server Component genuinely
+   cannot see a user's real localStorage holdings, so this could only
+   ever match the hardcoded seed's literal `"U"` — a real user's own
+   Unity holding (onboarded with a random instrument id) would never
+   trigger it, while the seed always would. `fallbackName` is just the
+   ticker now.
+3. **`StockDetailClientShell.tsx`** — removed `UNITY_INSTRUMENT_ID`/
+   `isUnity`; every confirmed config now uses the same onboarded
+   builders (`buildOnboardingBaselineScorecard`,
+   `buildOnboardedActionZoneTemplates`, a synthetic "Playbook created"
+   timeline entry, `deriveFundamentalsModelFit(false)`) with zero
+   exceptions — a real Unity holding is no longer special-cased at all.
+4. **`PlaybookClientShell.tsx`** — removed `showHandAuthoredThesisContent`
+   and its conditional render block. **Deleted** `ThesisCard.tsx`,
+   `WhatChangesMyView.tsx`, `ResearchPreview.tsx`, `WhyThisStance.tsx` —
+   each rendered ONLY Unity's hardcoded `unity-seed.ts` content, had no
+   per-stock equivalent, and had zero remaining references (production
+   or test) once the render block was gone.
+5. **Seed files kept, not deleted** — `holdings-seed.ts`,
+   `stock-playbook-seed.ts`, `market-data-seed.ts`, `unity-seed.ts` have
+   zero production importers after this pass (confirmed by grep) but are
+   still used extensively as realistic fixtures by the domain validation
+   suite (`b5.*.test.ts`, `engine.test.ts`, `trust-cleanup.test.ts`,
+   `onboarding-integration.test.ts`, `snapshot.test.ts`,
+   `stock-concentration-view.test.ts`) — rewriting that suite's fixtures
+   was out of scope for this pass. Each file now carries a "test-only, do
+   not re-wire into production" header comment, matching
+   `portfolio-seed.ts`'s existing precedent.
+- **Live-validated**, fresh browser (`localStorage.clear()`), full
+  cycle: empty portfolio → add a real ASML holding + cash + manual price
+  → reload (persists) → create a real Playbook via the onboarding wizard
+  → reload (config persists, `Model fit: Unknown`, no hand-authored
+  content) → BUY 1 share → reload (holding/cash persist) → raw
+  localStorage inspection confirmed exactly one holding set and one
+  config, both keyed by real random UUIDs, zero Unity anywhere →
+  `/stocks/U` correctly renders "Stock not found" → ASML's live research
+  (Valuation Context, Business Trajectory, Recent Changes, Momentum)
+  still works end-to-end on the real holding.
+- **Honest side effects, not defects**: Momentum's relative-strength
+  benchmark is now `NOT_APPLICABLE` for every stock (previously wired
+  only to Unity's hardcoded "SPY" seed; no live per-user benchmark
+  config exists from a Server Component to replace it with — already
+  every non-Unity stock's behavior). `legacyMarketColor` mechanism kept
+  (generic, optional) but nothing populates it now. Transaction timeline
+  and onboarding-draft persistence gaps intentionally NOT touched (out
+  of this pass's scope).
+- Full suite: **62 files, 818 tests, all passing**, clean `tsc --noEmit`,
+  same 2 pre-existing unrelated lint errors.
+
+---
+
+## [0.34.0] — 2026-09-21
+
+### v0.1 Stabilization Pass
+
+Two focused fixes ahead of dogfooding, found by the prior release-
+readiness review; nothing else changed (no caching/retry infrastructure,
+no transaction-timeline persistence, no other backlog items).
+
+1. **Valuation contradiction fixed.** `SignalScorecard.tsx`'s legacy
+   "Valuation" row (`scorecard.valuation`, a pre-Phase-I placeholder,
+   permanently `null` in production — no live pipeline has ever
+   populated it) now drops out of Signal Overview entirely while it's
+   `null`, instead of always rendering "Not available" directly beneath
+   the new, real `ValuationContextCard`. No score was invented to fill
+   it — the row simply stops appearing until/unless `scorecard.valuation`
+   is ever genuinely non-null (the mechanism itself is untouched).
+2. **Twelve Data call consolidation.** New
+   `src/infrastructure/market-data/stock-page-orchestration.ts`
+   (`fetchStockPageLiveData`) replaces `page.tsx`'s three independent
+   calls (Momentum, Fundamentals, Valuation) with one: the stock quote,
+   its daily price series, and SEC EDGAR fundamentals are each fetched
+   **once** and shared between Momentum and Valuation, instead of each
+   fetching its own copy. `fetchLiveMomentumResult`/
+   `fetchLiveEvRevenueCheckpoints`/`fetchLiveFundamentalsResult`
+   themselves are untouched — still used by their own tests and the
+   standalone validation script; this is an additional, consolidating
+   entry point for the one real caller that needs all three.
+- **Live-measured Twelve Data calls per page load** (isolated runs, real
+  production benchmark/currency conditions): ASML 6 → 4, Unity 6 → 4.
+  SEC EDGAR calls: 4 → 2 for both (the duplicate fundamentals fetch
+  fell out naturally, as anticipated).
+- **Live-validated** both fixes together on ASML/Unity: no more
+  contradictory "Valuation" row, Valuation Context reliably resolves
+  (15.0x / 12.2x / "Higher than recent history" for ASML) after a rate-
+  limit window clears, Unity's "Not available" unaffected.
+- Full suite: **62 files, 818 tests, all passing** (5 new tests for the
+  consolidation), clean `tsc --noEmit`, same 2 pre-existing unrelated
+  lint errors.
+
+---
+
+## [0.33.0] — 2026-09-21
+
+### Phase I.4B — Minimum Valuation Context
+
+Exposes 0.32.0's now-point-in-time-correct `EvRevenueCheckpoint[]` to the
+user for the first time — closing the "built, not yet called from
+anywhere" gap `fetchLiveEvRevenueCheckpoints` had carried since 0.31.0.
+Descriptive context only, per the explicit product scope: current
+EV/Revenue against the median of its own 3-5 most recent completed
+fiscal years, described as "Higher"/"Lower"/"In line with recent
+history" — no cheap/expensive language, no over/undervalued judgment, no
+score, no percentile, no threshold beyond the plain three-way sign
+comparison the spec itself specifies. Phase I.4A's data pipeline
+(`valuation-checkpoints.ts`/`valuation-orchestration.ts`) is untouched.
+
+1. **Added** `src/domain/signals/valuation-context.ts` —
+   `deriveValuationContext(checkpoints)`. Pure, deterministic: treats
+   `checkpoints[0]` as "current" and the rest as "historical" (a
+   documented convention, not a general rule — see the file's own doc
+   comment on why threading an explicit `isCurrent` flag through I.4A's
+   own type was out of this phase's "do not change the valuation data
+   pipeline" boundary); requires at least 3 historical checkpoints or
+   resolves `MISSING`; computes the plain median (no interpolation
+   beyond the standard even-count average) of the historical
+   `evToRevenue` values; compares current against that median with exact
+   sign comparison (`>`/`</`=`) to `HIGHER`/`LOWER`/`IN_LINE`. No other
+   field exists on the `AVAILABLE` shape.
+2. **Added** `src/components/playbook/ValuationContextCard.tsx` —
+   mirrors `RecentChangesCard`/`BusinessTrajectoryCard`'s exact visual
+   language (same card chrome, same `Minus`-icon "Not available" state,
+   same neutral `bg-stone-50` value badges) and the same restraint: no
+   color/icon variation by comparison direction — "Higher than recent
+   history" is not styled as a warning any more than "Lower" is styled
+   as an opportunity, matching `RecentChangesCard`'s own precedent for
+   `reversed`. Renders current/historical-median as `NN.Nx` multiples
+   plus one plain comparison sentence.
+3. **Wired end-to-end**: `src/app/stocks/[ticker]/page.tsx` now also
+   calls `fetchLiveEvRevenueCheckpoints` (a third parallel live fetch
+   alongside momentum/fundamentals — SEC EDGAR fundamentals again, plus
+   Twelve Data historical price/FX; not reusable from the existing
+   fundamentals fetch, which carries no price/FX data) and threads
+   `initialEvRevenueCheckpoints` through `StockDetailClientShell` →
+   `PlaybookClientShell`, which derives `valuationContext` and renders
+   `ValuationContextCard` directly below `RecentChangesCard`. A failed
+   fetch (`undefined`) and a genuinely-empty result (every checkpoint's
+   required evidence missing) both collapse to `[]` before reaching
+   `deriveValuationContext`, which already treats both as `MISSING` —
+   the same "absent" convention every other `initial*` prop already
+   follows.
+- **Tests**: `valuation-context.test.ts` (10 tests) — the empty-array/
+  Unity-shaped case, the below-minimum (2 historical) case, the
+  exactly-3 and full-5 historical cases, `HIGHER`/`LOWER`/`IN_LINE`
+  (including exact-equality with no tolerance band), even-count median
+  averaging, order-independence of the median, and a shape check that
+  no score/percentile/classification field exists on the `AVAILABLE`
+  result. No new UI component tests — consistent with this codebase's
+  existing convention of testing presentation-layer cards only through
+  their pure domain primitive, never rendering them directly (no `.tsx`
+  test exists anywhere in this repo). Full suite: **61 files, 813 tests,
+  all passing**, clean `tsc --noEmit`, clean lint (the same two
+  pre-existing, unrelated `react-hooks/set-state-in-effect` errors as
+  every prior phase).
+- **Live-validated** in the running app (both reference stocks, real SEC
+  EDGAR + Twelve Data data):
+  - **ASML**: Current **15.0x**, 5-year median **12.2x**, **"Higher than
+    recent history"** — consistent with 0.32.0's own corrected
+    checkpoint numbers (current 14.992; historical
+    [13.839, 12.754, 11.666, 12.215, 9.255], median 12.215).
+  - **Unity**: **"Not available"** — debt still never resolves (0.30.0's
+    original finding), so `fetchLiveEvRevenueCheckpoints` still returns
+    an empty array and `deriveValuationContext` correctly reports
+    `MISSING`, exactly as required.
+  - Confirmed live that three concurrent Twelve-Data-touching fetches
+    (momentum + the new valuation checkpoints call) can trip the
+    provider's per-minute credit cap under real conditions — the
+    orchestration's existing "never throws, resolves to `undefined` on
+    any failure" contract (0.31.0) degraded correctly to "Not available"
+    rather than an error page; re-verified AVAILABLE on retry once the
+    window reset. Not treated as a defect to fix in this phase (no
+    caching/backoff/retry logic added) — noted here as an observed
+    operational characteristic under the free-tier rate limit, not a
+    correctness issue with the data itself.
+
+---
+
+## [0.32.0] — 2026-09-21
+
+### Phase I.4A.1 — Point-in-Time Filing Identity Fix
+
+Blocking correctness bug fix. 0.31.0's own live validation looked clean
+(ASML: 6 checkpoints, all `CONVERTED`) but §16.3's finding — flagged
+there as narrowly scoped to "two most-recently-superseded fiscal
+years" — was re-measured on request and found to be far broader: every
+one of ASML's 20 fetched historical periods showed the identical ~2.1-year
+`periodEndDate` → `filingDate` gap, against a genuine ~56-day baseline
+(the one period too new to have been swept up yet). 5 of the 6 selected
+checkpoints — every one except "current" — were using price, shares, and
+(where applicable) FX dated to a LATER filing than the fundamentals they
+were paired with, not the two originally flagged. Treated as blocking:
+this fix landed before any I.4B work, per instruction.
+
+**Root cause** — one level deeper than 0.31.0's own §16.3 diagnosis
+placed it. `RawFundamentalsPeriod.filingDate`/`accn` are drawn from a
+"representative" fact chosen per `end` in `buildPeriodsFromFields`
+(`src/infrastructure/market-data/sec-edgar/mappers.ts`). Before this fix,
+that representative was pulled from the SAME `end`-keyed map used for the
+field's own reported VALUE — a map already collapsed to "latest `filed`
+wins" by `dedupeByLatestFiled`, one layer further upstream in
+`parsing.ts`. That collapse is CORRECT for a value (a restated/
+latest-confirmed figure is the right number to show) but wrong for
+identity: a filer's primary financial statements disclose not just the
+current fiscal year but 1-2 prior years as comparatives, and EVERY one of
+those comparative facts carries the LATER filing's own `filed`/`accn` —
+not the filing that originally disclosed that year. "Latest wins" is
+therefore also, silently, "whichever filing last restated this period
+as a comparative wins" for identity — confirmed live via direct SEC
+EDGAR query (`RevenueFromContractWithCustomerExcludingAssessedTax`,
+CIK 0000937966, `end=2023-12-31`): three filings (2024-02-14 original,
+2025-03-05 comparative, 2026-02-25 comparative) report the identical
+value, and the pre-fix mapper kept the LAST one's identity for a period
+that was actually first known 787 days earlier.
+
+**First fix attempt failed live validation** — restated here so the
+mistake isn't repeated. Adding an earliest-wins `toEarliestByEnd` inside
+`mappers.ts` and feeding it the OUTPUT of the existing `extractDurationFacts`/
+`extractInstantFacts`/`extractAnnualInstantFacts`/`extractFiscalYearCumulativeFacts`
+functions changed nothing: those functions already call
+`dedupeByLatestFiled` internally (`parsing.ts`, §4.4), collapsing each
+`end` to a single latest-filed fact BEFORE `toEarliestByEnd` ever saw
+more than one candidate. Confirmed by a live re-run showing byte-identical
+output to the pre-fix version, then isolated with a minimal direct
+`mapEdgarCompanyFacts` reproduction before the real fix landed.
+
+**Selection rule (the actual fix)** — `parsing.ts` gained four exported
+"filter-only" functions (`filterDurationFacts`/`filterInstantFacts`/
+`filterAnnualInstantFacts`/`filterFiscalYearCumulativeFacts`), each the
+existing filter half of its extract* sibling, factored out so the
+UNDEDUPED (but cadence/duration-filtered) fact array is available to a
+caller. `mappers.ts`'s `resolveQuarterlyFields`/`resolveAnnualFields` now
+build a period's `identity` (fiscalYear/fiscalQuarter/filingDate/accn)
+from `toEarliestByEnd(filterXFacts(...))` — the genuinely earliest-filed
+fact per `end` — while every field's reported VALUE keeps reading from
+the unchanged `toMapByEnd(extractXFacts(...))` (latest-filed) path.
+`operatingCashFlow`/`capex` are the one documented exception: Phase
+E.7D's cumulative-YTD derivation synthesizes some of these facts from
+OTHER periods' cumulative figures, so there is no single well-defined
+"this fact's own earliest filing" without reworking that derivation —
+out of this fix's scope, and inconsequential in practice since these two
+fields sit last in `buildPeriodsFromFields`'s priority order, behind
+revenue/operatingIncome, which resolve for every period this mapper has
+been validated against (Unity, ASML). No ticker-specific branch anywhere
+— the fix is the shared selection rule, not an ASML special case.
+
+**Preserved, unchanged**: every reported financial VALUE (revenue,
+operating income, cash, debt, and their `asOf` dates) — only WHICH
+fact supplies a period's identity metadata changed, never which fact
+supplies its figure. Historical shares-outstanding join
+(`sharesOutstandingByAccession[period.accn]`) needed no code change at
+all — it already keyed by every distinct `accn` seen; fixing which
+`accn` lands on a period automatically fixes which shares figure that
+period's checkpoint joins to. Price/FX date-selection logic in
+`valuation-checkpoints.ts` is untouched — it already correctly used
+`period.filingDate` as its point-in-time key; that key was simply wrong
+before this fix. Unity is structurally unaffected (still 0 checkpoints,
+still dropped on missing debt before price/date selection is ever
+reached) and its full existing test suite (mapper, orchestration,
+Business Trajectory, Recent Changes, FundamentalChangeEvidence) passes
+unchanged, since none of those consumers key anything off of
+`fiscalYear`/`filingDate`/`accn`.
+
+**Corrected ASML checkpoints (live-validated)** — 6 checkpoints, now each
+with a distinct, genuine own-filing checkpoint date (~40-65 days after
+its own `periodEndDate`, matching the "current" checkpoint's own
+always-correct 56-day baseline):
+
+| fiscal year | checkpoint date | price (USD) | shares | EV/Revenue |
+|---|---|---|---|---|
+| 2025 (current) | 2026-02-25 | 1,526.51 | 385,417,665 | 14.992 |
+| 2024 | 2025-03-05 | 739.75 | 393,283,720 | 9.255 |
+| 2023 | 2024-02-14 | 924.44 | 393,421,721 | 12.215 |
+| 2022 | 2023-02-15 | 676.81 | 394,589,411 | 11.666 |
+| 2021 | 2022-02-09 | 680.37 | 402,601,613 | 12.754 |
+| 2020 | 2021-02-10 | 566.89 | 416,514,034 | 13.839 |
+
+Every ratio here changed from 0.31.0's pre-fix numbers except the
+current checkpoint (which was always correct); the 2024 and 2023 ratios
+changed the most, since those two were the ones sharing the most
+anachronistic (2026) price/shares pre-fix.
+
+- **Tests**: `mappers.test.ts` gained a new "Phase I.4A.1 point-in-time
+  filing identity" block (4 tests) — the exact ASML three-filing
+  reproduction above, a value-vs-identity split proof (a genuine
+  restatement still uses the latest VALUE while identity stays on the
+  earliest filing), the QUARTERLY/Unity-shaped equivalent (extending the
+  existing §4.4 comparative-balance fixture with identity assertions),
+  and a period whose only fact IS a later comparative (no earlier
+  appearance exists) still resolving rather than going MISSING. Full
+  suite: **60 files, 803 tests, all passing**, clean `tsc --noEmit`,
+  clean lint.
+- **Live-revalidated**: `npm run validate:live-ev-revenue-checkpoints` —
+  Unity still 0 checkpoints (unchanged); ASML's 6 checkpoints now show 6
+  distinct checkpoint dates (previously 3 of the 6 shared one
+  anachronistic date/price/shares triple).
+
+**Is Phase I.4A now point-in-time correct?** For the two reference
+filers, yes — every ASML checkpoint's price/shares/FX now dates to that
+period's own genuine original filing, and Unity's behavior is unchanged
+and unaffected. Not proven true in general for every conceivable filer
+shape (e.g. a filer that skips its own first disclosure of a period
+entirely and only ever reports it as a comparative — the fourth new test
+above shows this degrades to "use whatever exists," not to MISSING or a
+thrown error, which is the correct fallback but not a claim that a
+still-more-original filing couldn't in principle exist further back than
+what SEC EDGAR's own API returns).
+
+---
+
+## [0.31.0] — 2026-09-21
+
+### Phase I.4A — Valuation Data Foundation
+
+Implemented the data plumbing + pure deterministic derivation behind
+EV/Revenue observations, per the four product/model decisions 0.30.0
+left open (now resolved): missing debt stays MISSING, current + up to 5
+completed fiscal-year checkpoints, checkpoint date = filing/knowledge
+date, historical price = latest trading-day price on or before that
+date, historical shares join by SEC accession number, historical FX
+fetched only when priceCurrency != reportingCurrency and always dated to
+the checkpoint, missing required evidence drops the checkpoint (no
+interpolation/backfill). No classification, percentile, score, peers,
+DCF, AI, or UI — data foundation only, per the explicit scope boundary.
+
+1. **`RawFundamentalsPeriod` gained `accn?: string`** and
+   **`RawFundamentalsData` gained `sharesOutstandingByAccession: Record<string,
+   DataField<number>>`** (`src/types/fundamentals.ts`) — additive fields,
+   every existing consumer unchanged. `mapEdgarCompanyFacts`
+   (`src/infrastructure/market-data/sec-edgar/mappers.ts`) now carries
+   the representative fact's own accession number onto each period and
+   keys every `dei:EntityCommonStockSharesOutstanding` fact by its own
+   `accn` (not collapsed to one latest value) — the non-arbitrary join
+   key verified live in 0.30.0's feasibility spike.
+2. **Added** `src/domain/signals/valuation-checkpoints.ts` —
+   `deriveEvRevenueCheckpoints`. Pure, deterministic: selects current +
+   up to 5 completed fiscal-year periods, joins each one's shares
+   outstanding by its own `accn`, selects the latest price/FX bar on or
+   before that period's `filingDate` (never a future bar, never
+   interpolated), calls the existing `resolveCurrencyIntegrity` boundary
+   before ever combining MarketCap with totalDebt/cash, and computes
+   `MarketCap = price * shares`, `EV = normalizedMarketCap + totalDebt -
+   cash`, `EV/Revenue = EV / TTMRevenue` (reusing
+   `computeTrailingTwelveMonthRevenue`'s existing cadence-aware logic
+   unchanged). Any checkpoint missing required evidence is silently
+   dropped from the result array — never a MISSING placeholder, never
+   backfilled from a neighbor.
+3. **Fiscal-year checkpoint sampling deliberately orders/selects by the
+   `periods` array's own already-guaranteed periodEndDate-ascending
+   position — never by re-sorting on `period.fiscalYear` itself.** Found
+   live, against ASML's real SEC data: its `fy` XBRL tag is per-FILING,
+   not per-fact — a later 20-F's own multi-year comparative disclosure
+   carries THAT filing's `fy` label on every year it discloses, not the
+   label of the year each fact actually describes. Combined with the
+   pre-existing (E.7B) "latest-filed wins" dedup rule, this can make
+   several genuinely distinct periods share one mislabeled `fiscalYear`.
+   `periods` itself has no such defect (already deduped to one entry per
+   distinct `periodEndDate`), so array-position sampling is immune to it
+   even though the label is not — this fix landed after a live run first
+   surfaced the collision (see the finding below).
+4. **Added** `src/infrastructure/market-data/valuation-orchestration.ts`
+   — `fetchLiveEvRevenueCheckpoints`, composing the SEC EDGAR fetch
+   (extended `FundamentalsFetchResult` with `reportingCurrency`/
+   `sharesOutstandingByAccession`, same single fetch, no second round
+   trip) with Twelve Data's historical price `/time_series` and, only
+   when needed, a historical FX `/time_series` request for the
+   `priceCurrency/reportingCurrency` pair (0.30.0's own finding: the
+   generic time-series endpoint accepts a forex pair identically to a
+   stock symbol — never Twelve Data's current-only `/exchange_rate`).
+   Never throws; not wired into any page or UI — same "built, not yet
+   called from anywhere" posture 0.24.0's currency-integrity boundary had
+   before this phase became its first real caller.
+5. **Added** `scripts/validate-live-ev-revenue-checkpoints.ts` +
+   `npm run validate:live-ev-revenue-checkpoints` — developer-only live
+   validation, mirroring the existing E.7B/C.8B scripts.
+- **Tests**: `mappers.test.ts` gained accession-number join-key tests
+  (accn carried onto a period, `sharesOutstandingByAccession` keyed
+  correctly, an end-to-end ASML-shaped join). `orchestration.test.ts`
+  (sec-edgar) gained tests for the two newly-exposed fields.
+  `valuation-checkpoints.test.ts` (23 tests) covers accession matching,
+  fiscal-year sampling (including the ASML mislabeled-`fy` regression
+  above), no-future-price selection (including a market-holiday gap),
+  conditional FX fetching, missing historical FX, missing debt (Unity's
+  real shape), and checkpoint dropping.
+  `valuation-orchestration.test.ts` (5 tests) covers conditional FX
+  fetching at the plumbing level and every failure mode. Full suite:
+  **60 files, 799 tests, all passing**, clean `tsc --noEmit`, clean lint.
+- **Live-validated** for both reference stocks
+  (`npm run validate:live-ev-revenue-checkpoints`):
+  - **Unity: 0 checkpoints — every one dropped.** Confirmed root cause:
+    Unity's live SEC data has never tagged any debt concept
+    (`DebtCurrent`/`ShortTermBorrowings`/`LongTermDebtCurrent`/
+    `LongTermDebtNoncurrent`/`LongTermDebt`, all absent) across all 25
+    fetched periods — exactly 0.30.0's flagged fork, confirmed live, not
+    a bug in this implementation.
+  - **ASML: 6 checkpoints — one per real fiscal year 2020-2025, all
+    `CONVERTED` (USD price normalized to EUR reporting via a dated FX
+    bar), all with real revenue/debt/cash/EV/Revenue.**
+- **PRODUCT/MODEL issue discovered, not resolved**: ASML's most recent
+  20-F's own multi-year comparative disclosure means the *checkpoint
+  date* (and therefore the price/shares selected) for its two
+  most-recently-superseded fiscal years (2023, 2024 in the live run) is
+  the LATEST filing's date, not those years' own original filing date —
+  because the mapper's pre-existing "latest-filed wins" dedup (correct
+  for restated VALUES) also overwrites `accn`/`filingDate` IDENTITY,
+  and that original identity is not recoverable from what
+  `RawFundamentalsData` currently retains. Those two checkpoints' own
+  revenue/debt/cash are each period's genuine, correct figures; their
+  price/shares are anachronistically recent. Sampling itself is
+  unaffected (item 3 above) — no year is dropped or double-counted —
+  but the resulting EV/Revenue ratio for those two specific years should
+  not yet be trusted as a true historical-point-in-time observation.
+  Fixing this requires a mapper-level design decision (separating a
+  period's VALUE freshness from its IDENTITY provenance) genuinely out
+  of this phase's data-plumbing scope — flagged for a follow-up phase,
+  not silently patched here.
+
+---
+
+## [0.30.0] — 2026-09-18
+
+### Phase I Valuation Context feasibility (design only)
+
+Determined the smallest historically-correct way to answer "is this
+stock cheap or expensive relative to its own history?" for EV/Revenue
+only, own-history only, no code changed.
+
+- **Found an exact, non-arbitrary alignment key for historical shares
+  outstanding**: verified directly against live SEC data that a period's
+  `dei:EntityCommonStockSharesOutstanding` fact shares the identical
+  `accn` (SEC accession number) as that period's `revenue`/
+  `operatingIncome` facts, for both Unity and ASML — a structural join,
+  not a date-window heuristic, even though the two companies' `end`
+  dates behave differently (ASML's lands exactly on fiscal year end;
+  Unity's lands on the filing's cover-page date, weeks later).
+- **Found the single biggest feasibility fork**: Unity tags no debt
+  concept at all, anywhere in its filing history (`DebtCurrent`,
+  `ShortTermBorrowings`, `LongTermDebtCurrent`, `LongTermDebtNoncurrent`,
+  `LongTermDebt` all 404). Under the existing, already-approved rule
+  ("MISSING, never $0, when neither debt sub-component resolves" —
+  0.24.0's own `toTotalDebtField`), Unity's EV — and therefore every
+  EV/Revenue checkpoint — would be permanently `MISSING`, for the one
+  reference stock that works everywhere else in Phase I. Flagged as an
+  open product decision, not resolved.
+- **Found historical FX is feasible without a new vendor or paid tier**:
+  Twelve Data's `/time_series` accepts a forex pair (`USD/EUR`)
+  identically to a stock symbol, with real historical depth — so ASML's
+  price (USD, Twelve Data's default listing) can be normalized to its
+  EUR reporting currency using an FX rate *dated to each checkpoint*,
+  not today's rate applied retroactively.
+- Proposed model: a handful of checkpoints anchored to periods already
+  in `RawFundamentalsData.periods` (one per fiscal year, not a dense
+  independent grid), each dropped entirely (never interpolated) if any
+  required input — debt, cash, TTM revenue, accn-matched shares, a
+  price bar, or a dated FX bar — is unavailable.
+- No implementation; four open product/model decisions surfaced (the
+  Unity debt question above, checkpoint count/anchoring, checkpoint
+  date convention, and whether to pursue ASML's currency normalization
+  now or defer).
+
+---
+
+## [0.29.0] — 2026-09-18
+
+### Phase I.5 — Recent Changes Presentation
+
+Exposed the already-complete `FundamentalChangeEvidence` primitive
+(0.28.0) to the user, closing the plumbing gap that had discarded
+`RawFundamentalsData` after scoring since Phase I.1.
+
+1. **Plumbing fix, not a redesign.** `fetchLiveFundamentalsResult`
+   (`src/infrastructure/market-data/sec-edgar/orchestration.ts`) now
+   returns `FundamentalsFetchResult { scoreResult, periods, periodType }`
+   from the *same* SEC EDGAR fetch — never a second round trip.
+   `scoreResult` is exactly the same `FundamentalsScoreResult` every
+   existing consumer already expected; `page.tsx` unpacks it
+   immediately, so `runDecisionEngine`/`EngineInput`/`EngineOutput`,
+   `SignalScorecard`, and `deriveBusinessTrajectory` are untouched.
+   `periods`/`periodType` are new, additive props threaded separately
+   (`page.tsx` → `StockDetailClientShell` → `PlaybookClientShell`),
+   consumed only by the new card.
+2. **Added** `RecentChangesCard` (`src/components/playbook/RecentChangesCard.tsx`)
+   — rendered directly below `BusinessTrajectoryCard`, above
+   `SignalScorecard`. Shows the actual `before → after` values for
+   revenue growth and operating margin between the two most recently
+   reported periods; `reversed` is rendered as one plain factual
+   sentence ("Direction changed from positive to negative"), never as
+   "material"/"significant"/a warning. No color or icon varies by
+   `reversed` — every `AVAILABLE` line uses identical neutral styling.
+   `INSUFFICIENT_HISTORY` ("Insufficient history") and `MISSING` ("Not
+   available") are rendered distinctly from each other and never as
+   "stable"/"no change."
+3. No aggregate verdict, no score, no materiality threshold, no AI, no
+   effect on stance/action zones/thesis/the decision engine.
+- **Added** an `orchestration.test.ts` block confirming `periods`/
+  `periodType` are exposed alongside `scoreResult` from a single fetch
+  (`fetch` mocked exactly twice) for both a Unity-shaped `QUARTERLY`
+  fixture and an ASML-shaped `ANNUAL` fixture. No changes needed to
+  `FundamentalChangeEvidence`'s own tests or any engine-level test —
+  the full existing suite passing unchanged is the proof of zero effect
+  on engine output, since the engine's types were never touched.
+- **Verified live** in Chrome on both reference stocks: Unity shows
+  "Revenue +16.8% → +23.9%" / "Profitability −69.1% → −5.9%" (no
+  reversal — still negative, improving toward breakeven); ASML shows
+  "Revenue +2.6% → +15.6%" / "Profitability +31.9% → +34.6%" (no
+  reversal) — real, live SEC EDGAR data for both. Neither stock's
+  current real data happens to include a sign reversal; that path is
+  covered by `fundamental-change-evidence.test.ts`'s 22 deterministic
+  tests instead.
+- Full suite: **763/763 passing**, clean `tsc --noEmit`, clean lint.
+
+---
+
+## [0.28.0] — 2026-09-17
+
+### Phase I.4 — FundamentalChangeEvidence
+
+Implemented the deterministic primitive behind "Recent Changes,"
+corrected before coding: renamed from the originally-proposed "Recent
+Material Changes" once a model-definition spike found no honest,
+threshold-free way to define general materiality — no ruleset or spec
+anywhere in this codebase defines a significance boundary
+(`RULESET.fundamentals`'s anchor curves calibrate a 0–100 score, not
+materiality).
+
+1. **Added** `src/domain/signals/fundamental-change-evidence.ts` —
+   `deriveFundamentalChangeEvidence(periods, periodType)`. Deliberately
+   **no `FundamentalsScoreResult` dependency** — reads
+   `RawFundamentalsData.periods` directly, one layer below where
+   `deriveBusinessTrajectory` sits, reusing `computeRevenueGrowth`/
+   `computeOperatingMargin` (`fundamentals.ts`) at two cutoffs
+   (`periods` vs. `periods.slice(0, -1)`) rather than duplicating any
+   calculation.
+2. Two independent lines (revenue, profitability). Status union:
+   `AVAILABLE` (`before`/`after`/`beforeSign`/`afterSign`/`reversed`/
+   `asOf`), `INSUFFICIENT_HISTORY` (after computable, before not — never
+   called "newly available," since that would require comparing against
+   a previous fetch or persisted state, neither of which exists here),
+   `MISSING` (current value itself not computable).
+3. `reversed` is a strict sign comparison only
+   (`POSITIVE`↔`NEGATIVE`) — a `ZERO` transition is never a reversal, by
+   design, to avoid deciding how close to zero still counts as a flip.
+   No magnitude/materiality threshold anywhere.
+- **Added** 22 tests: both reversal directions, same-sign
+  deterioration/improvement, both zero-crossing directions, insufficient
+  history, missing current evidence, both cadences, and Unity-shaped/
+  ASML-shaped realistic fixtures.
+- No UI, no AI, no effect on Business Trajectory or the decision engine
+  — domain layer only; this primitive had no consumer until 0.29.0.
+- Full suite: **761/761 passing**, clean `tsc --noEmit`, clean lint.
+
+---
+
+## [0.27.0] — 2026-09-17
+
+### Phase I.3.1 — Reporting-Currency Discovery
+
+Architectural correction of the Phase I.1 regression found in 0.26.0:
+removed the whole notion of a caller-supplied reporting currency.
+
+1. **`mapEdgarCompanyFacts`/`fetchLiveFundamentalsResult` no longer take
+   a `reportingCurrency` argument at all.** The mapper now discovers it
+   itself, per cadence, from the currency units actually present on the
+   seven target financial concepts it already reads (revenue,
+   operatingIncome, operatingCashFlow, capex, cash, debtShort,
+   debtLong) — never the whole companyfacts payload, never a fixed
+   USD/EUR/GBP guess order.
+2. **Rule**: one consistent currency across every target field → use
+   it; zero currencies with usable data → `undefined`; more than one
+   distinct currency, within one field or across fields → `undefined` —
+   never resolved by order, majority, or ticker.
+   `RawFundamentalsData.reportingCurrency` is now `string | undefined`
+   (was `string`), never silently defaulted to `"USD"`.
+3. Verified against ASML's real payload that scanning must stay scoped
+   to the seven target concepts: a full-payload scan found three
+   distinct currency-shaped units (EUR for the real financials, plus JPY
+   and USD on unrelated foreign-currency-derivative/commitment
+   disclosures) — a whole-payload scan would have wrongly flagged ASML
+   as ambiguous.
+4. Confirmed via live SEC API calls that no explicit reporting-currency
+   field exists anywhere (`dei` namespace, `submissions` filer metadata)
+   — discovery from the target concepts' own units is the only reliable
+   source.
+5. `Instrument`/`nativeCurrency` (`src/types/portfolio.ts`) untouched —
+   never the problem; conflating it with reporting currency was.
+- **Added** tests for Unity→USD/ASML→EUR discovery, within-field and
+  cross-field ambiguity → `MISSING`, a non-target-concept currency
+  correctly ignored, and a currency present but with zero cadence-usable
+  facts correctly falling through to the annual attempt.
+- **Verified live**: ASML now shows real Business Trajectory and
+  Fundamentals evidence for the first time in the whole Phase I effort
+  (8/10 Positive, "Model fit: Unknown") — no changes needed to
+  `BusinessTrajectoryCard`/`SignalScorecard`, confirming the presentation
+  layer was already correct and only the currency source needed fixing.
+- Full suite: **739/739 passing**, clean `tsc --noEmit`, clean lint.
+
+---
+
+## [0.26.0] — 2026-09-17
+
+### Phase I.3 — Business Trajectory (+ a Phase I.1 regression found and fixed)
+
+1. **Added** `src/domain/signals/business-trajectory.ts` —
+   `deriveBusinessTrajectory` reads the existing `growthTrend`/
+   `marginTrend` component results `scoreFundamentals` already computes
+   and maps each independently to `IMPROVING`/`DETERIORATING`/`STABLE`/
+   `MISSING` by the sign of `rawValue`. No new score, no new weights, no
+   aggregate IMPROVING/MIXED/DETERIORATING verdict — two lines shown
+   side by side, never combined.
+2. **Added** `BusinessTrajectoryCard` (`src/components/playbook/BusinessTrajectoryCard.tsx`)
+   — rendered above `SignalScorecard` as the primary beginner-facing
+   evidence read (plain-language direction, no bars, no 1–10 number).
+   The existing Fundamentals row was not restructured — a small "Full
+   composite score" caption was added under its label instead, so it
+   reads as supporting detail rather than a second, competing
+   interpretation of the same evidence.
+3. **Found and fixed a real, silent regression from Phase I.1**, caught
+   by live-browser validation (the first UI-touching phase, which is
+   what triggered an actual live check instead of unit tests alone):
+   `page.tsx` had been passing
+   `seedHolding?.instrument.nativeCurrency` as the SEC reporting-currency
+   argument, reasoning it was "the instrument's own known reporting
+   currency." That was wrong — `InstrumentIdentity.nativeCurrency`
+   (`src/types/portfolio.ts`) is the **portfolio's own cost-basis/
+   tracking currency**, not the company's SEC reporting currency. Unity
+   proves these differ: its holding is tracked in EUR while Unity itself
+   reports to the SEC in USD. Passing "EUR" into a USD-denominated
+   filer's fetch had silently broken **Unity's entire live Fundamentals
+   Signal Overview row** since Phase I.1 shipped — invisible to every
+   automated test, which all supplied their own explicit currency
+   directly, never exercising the real `page.tsx` wiring end to end.
+   Fixed by reverting `page.tsx` to `fetchLiveFundamentalsResult`'s
+   existing `"USD"` default, applied uniformly (not a ticker-specific
+   branch) — restores Unity, and honestly reverts ASML's Fundamentals-
+   derived evidence to "Not available" for a different reason than
+   before (currency source, not currency support or cadence) until
+   0.27.0 resolves it properly.
+- **Added** 14 tests for `deriveBusinessTrajectory`.
+- **Verified live**: Unity shows "Revenue growth is accelerating" /
+  "Profitability is improving" with a real 7/10 Fundamentals score.
+- Full suite: **740/740 passing**, clean `tsc --noEmit`, clean lint.
+
+---
+
+## [0.25.0] — 2026-09-17
+
+### Phase I.2 — Annual Cadence Support
+
+Closed the second of two root causes behind ASML's "Not available"
+Fundamentals (the first, currency, was 0.24.0) — every ASML fact
+(us-gaap and dei alike) carries `fp: "FY"`, rejected outright by
+quarterly-only period-extraction rules that exist to disambiguate a
+*quarterly* filer's own comparative-figure duplicates.
+
+1. **Cadence selection in the mapper**
+   (`src/infrastructure/market-data/sec-edgar/mappers.ts`): quarterly
+   extraction (today's exact, unchanged logic) is tried first; only if
+   it yields zero periods does a new annual-FY extraction run, using
+   genuine FY-tier duration facts directly and a new, symmetric
+   `extractAnnualInstantFacts` (`parsing.ts`) for instant fields. No
+   cumulative-YTD derivation in annual mode — an annual fact already
+   covers its whole period, so there's nothing to derive it from, and
+   synthesizing one would mean fabricating a quarter that was never
+   reported. Quarterly and annual periods are never combined.
+2. **A third, previously-unnoticed quarterly-specific rule, found and
+   fixed alongside**: the period-identity loop required
+   `parseFiscalQuarter(fp) !== null`, and `parseFiscalQuarter("FY")` is
+   `null` — this would have silently rejected every annual period even
+   after the extraction fixes above. A new `isAcceptableFiscalPeriod`
+   replaces that check.
+3. **Cadence-aware calculations** (`src/domain/signals/fundamentals.ts`):
+   `computeRevenueGrowth`/`computeTrailingTwelveMonthRevenue` (and
+   through them `computeGrowthTrend`/`computeNetCashToRevenue`) take an
+   optional `periodType`, defaulting to `"QUARTERLY"` — 4 periods back
+   for quarterly (unchanged), 1 for annual (each period already spans a
+   full year); trailing-twelve-month revenue under annual cadence is the
+   single most recent period's own revenue, never a multi-year sum.
+   `computeOperatingMargin`/`computeFreeCashFlow`/`computeMarginTrend`/
+   `computeFcfMargin` take no `periodType` — confirmed cadence-agnostic
+   and left unchanged.
+- **Added** a permanent regression test using ASML's real multi-year
+  figures reaching two genuine `ANNUAL` periods; a quarterly-preferred/
+  never-mixed test; cadence-aware unit tests at both the `fundamentals.ts`
+  and `growth-software.ts` layers, including an explicit "this used to
+  silently compute a different, wrong number" contrast case; and one
+  end-to-end test reaching a genuine `SCORED` result for a realistic
+  ASML fixture.
+- Full suite: **726/726 passing**, clean `tsc --noEmit`, clean lint.
+
+---
+
+## [0.24.0] — 2026-09-17
+
+### Phase I.1 — Data Foundation
+
+First implementation phase for `docs/phase-i-minimum-research-evidence.md`
+— the shared currency/shares-outstanding foundation Business Trajectory
+and Valuation Context both need.
+
+1. **Reporting-currency-aware unit resolution.** The SEC EDGAR mapper's
+   `resolveUsdUnits` (hardcoded to `.units?.USD`) became
+   `resolveUnitFacts(facts, candidates, unitKey)`, parameterized by a
+   caller-supplied `reportingCurrency` (later found wrong in 0.26.0,
+   corrected in 0.27.0).
+2. **Added** `RawFundamentalsData.sharesOutstanding` — the latest
+   `dei:EntityCommonStockSharesOutstanding` fact (mandatory for every
+   XBRL filer, not currency-denominated), read but not yet consumed by
+   anything.
+3. **Added** `src/domain/market-data/currency-integrity.ts` —
+   `resolveCurrencyIntegrity(valueCurrency, targetCurrency, fx?)` →
+   `SAME_CURRENCY`/`CONVERTED` (only for the exact declared pair with an
+   `AVAILABLE` rate)/`MISSING` — the boundary a future valuation
+   calculation must call before combining any two currency-denominated
+   figures. Built and tested; no consumer yet.
+4. **Verified against real SEC/Twelve Data APIs, not assumed**: ASML's
+   "Not available" Fundamentals was never an IFRS/taxonomy gap — it
+   tags the exact `us-gaap` concept names already in the mapper's
+   candidate lists, denominated in EUR, all discarded by the old
+   USD-only filter. Also found (but not yet fixed — see 0.25.0) that
+   every ASML fact carries `fp: "FY"`, and (Finding C, still open) that
+   Twelve Data resolves bare "ASML" to its NASDAQ/USD listing, not the
+   EUR listing the portfolio model declares — harmless for Momentum
+   (its components are scale-invariant ratios) but not for a future
+   Valuation calculation.
+- Full suite: **702/702 passing**, clean `tsc --noEmit`, clean lint.
+
+---
+
+## [0.23.0] — 2026-09-17
+
+### Phase I — Minimum Research Evidence (design only)
+
+- **Added** `docs/phase-i-minimum-research-evidence.md`. Narrowed
+  `docs/minimum-research-model.md`'s five-area model to three active
+  Phase I build targets — Business Trajectory, Valuation Context,
+  Recent Material Changes — holding Portfolio Fit and Momentum frozen.
+  For each area: minimum useful data, likely data source, deterministic
+  vs. AI responsibility, missing-state handling, simplest beginner-
+  facing UX, and what's reusable from the current system.
+- Named explicit non-goals: no overall investment/ownership score, no
+  fair-value/DCF, no large research dashboard, no Thesis Lifecycle/
+  Investment Memory/evidence history/re-entry workflows, no automatic
+  AI buy/hold/sell decisions, no unnecessary archetype complexity. The
+  chain every area must preserve: evidence → AI interpretation (where
+  useful) → user judgment → the existing deterministic Playbook — none
+  of the three areas feeds back into the decision engine.
+- Surfaced (not resolved) seven product/model decisions later closed
+  one at a time across 0.24.0–0.29.0: the valuation ratio, whether to
+  pursue Twelve Data's paid `/statistics` endpoint, whether shares-
+  outstanding acquisition is in scope, whether non-US-GAAP-filer
+  coverage gaps are acceptable, UI placement, and more. No code
+  changed; no implementation started.
+
+---
+
 ## [0.22.0] — 2026-09-16
 
 ### Post-Phase-H Trust Cleanup (fix)

@@ -1,3 +1,10 @@
+// v0.1 real-data cleanup — no longer reachable from production runtime
+// (StockDetailClientShell.tsx no longer special-cases Unity; the
+// hand-authored ThesisCard/WhatChangesMyView/ResearchPreview components
+// that rendered this content were deleted). Kept as a test-only fixture
+// — the entire b5.*.test.ts decision-engine validation suite plus
+// engine.test.ts/trust-cleanup.test.ts use this as realistic input data.
+// Do not re-wire this into any production path.
 import type {
   StockSeed,
   ActionZone,

@@ -21,6 +21,9 @@ const RAW: RawFundamentalsData = {
   periods: [],
   guidanceEvidence: { status: "MISSING" },
   checkedAt: "2026-09-10T00:00:00.000Z",
+  reportingCurrency: "USD",
+  sharesOutstanding: { status: "MISSING" },
+  sharesOutstandingByAccession: {},
 };
 
 describe("scoreFundamentals — component-level visibility and coverage math", () => {

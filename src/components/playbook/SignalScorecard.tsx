@@ -74,6 +74,22 @@ interface Props {
 export function SignalScorecard({ scorecard, momentumResult, fundamentalsResult, fundamentalsModelFit }: Props) {
   const [expanded, setExpanded] = useState<keyof Scorecard | null>(null);
 
+  // v0.1 stabilization — the "Valuation" row is Scorecard.valuation's own
+  // legacy placeholder (F4 Trust Cleanup): it has never had a real live
+  // pipeline behind it, so `scorecard.valuation` is null for every real
+  // stock and this row has always rendered "Not available." Phase I.4B's
+  // ValuationContextCard (docs/phase-i-minimum-research-evidence.md §16.8)
+  // is now that real pipeline — rendered directly above this scorecard —
+  // so the two together read as a contradiction the moment a stock (ASML)
+  // actually has valuation evidence: one section says "Higher than recent
+  // history," the next says "Valuation: Not available." Dropping this row
+  // ENTIRELY while it stays null is the fix — never inventing a score to
+  // fill it (explicitly out of scope), and never hiding a REAL score: if
+  // `scorecard.valuation` is ever genuinely non-null (the mechanism
+  // itself is untouched — engine.ts/types.ts unchanged), the row still
+  // renders normally below, same as any other scored signal.
+  const visibleRows = rows.filter((row) => row.key !== "valuation" || scorecard.valuation !== null);
+
   function detailFor(key: keyof Scorecard) {
     if (key === "momentum") return momentumResult;
     if (key === "fundamentals") return fundamentalsResult;
@@ -88,7 +104,7 @@ export function SignalScorecard({ scorecard, momentumResult, fundamentalsResult,
 
       {/* Score rows */}
       <div className="space-y-1 mb-2">
-        {rows.map(({ key, label }) => {
+        {visibleRows.map(({ key, label }) => {
           const item = scorecard[key];
           const Icon = reasoningCategoryIcon[key];
 
@@ -151,6 +167,17 @@ export function SignalScorecard({ scorecard, momentumResult, fundamentalsResult,
                     the "evidence state != signal state" failure this
                     cleanup exists to remove, not add. Never blended into
                     the score/state pill (H.0's own resolution). */}
+                {/* Phase I.3 — docs/phase-i-minimum-research-evidence.md
+                    §11's UI-integration decision: Business Trajectory
+                    (above) is the primary beginner read of this same
+                    underlying evidence (growthTrend/marginTrend); this
+                    row is the fuller 7-dimension composite behind it,
+                    not a second, competing interpretation. */}
+                {key === "fundamentals" && !isFundamentalsUnavailable && (
+                  <span className="block text-[10px] text-stone-400 font-normal leading-tight">
+                    Full composite score
+                  </span>
+                )}
                 {key === "fundamentals" &&
                   !isFundamentalsUnavailable &&
                   fundamentalsModelFit !== undefined && (

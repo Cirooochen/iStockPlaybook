@@ -295,6 +295,113 @@ describe("computeNetCashToRevenue", () => {
   });
 });
 
+// Phase I.2 — every describe block below exercises the optional
+// `periodType` parameter added to computeRevenueGrowth/computeGrowthTrend/
+// computeTrailingTwelveMonthRevenue/computeNetCashToRevenue. Every
+// QUARTERLY-mode test above is unchanged and untouched — proof that the
+// default parameter value preserves existing behavior exactly.
+
+describe("computeRevenueGrowth — Phase I.2 ANNUAL cadence", () => {
+  const twoYears = [period("FY2024", { revenue: available(1000, "fy2024-asOf") }), period("FY2025", { revenue: available(1200, "fy2025-asOf") })];
+
+  it("compares against 1 period back, not 4, when periodType is ANNUAL", () => {
+    expect(computeRevenueGrowth(twoYears, "ANNUAL")).toEqual({ status: "AVAILABLE", value: 0.2, asOf: "fy2025-asOf" });
+  });
+
+  it("MISSING with only 1 annual period — no prior year available to compare against", () => {
+    expect(computeRevenueGrowth([twoYears[1]], "ANNUAL")).toEqual({ status: "MISSING" });
+  });
+
+  it("the SAME 2 periods are MISSING under the default QUARTERLY offset (needs 5) — proves periodType is genuinely load-bearing, not a no-op", () => {
+    expect(computeRevenueGrowth(twoYears)).toEqual({ status: "MISSING" });
+  });
+
+  it("the bug this phase fixes, pinned down: the same 5-entry array yields a DIFFERENT, not just differently-available, growth rate under each cadence's offset", () => {
+    // Distinct values at every index so the two offsets (4-back vs
+    // 1-back) cannot coincidentally agree, unlike fiveQuarters/sixQuarters
+    // above (whose filler periods share one revenue value). Before Phase
+    // I.2, ANNUAL periods fed through this function unchanged would have
+    // silently used the QUARTERLY 4-back offset and returned this exact
+    // wrong 100% figure, mislabeled as "prior year" growth.
+    const distinctPeriods = [
+      period("Y-4", { revenue: available(500) }),
+      period("Y-3", { revenue: available(600) }),
+      period("Y-2", { revenue: available(700) }),
+      period("Y-1", { revenue: available(800) }),
+      period("Y0", { revenue: available(1000, "current-asOf") }),
+    ];
+    const wrongIfUnfixed = computeRevenueGrowth(distinctPeriods); // QUARTERLY default: (1000-500)/500 = 1.00
+    const correctForAnnual = computeRevenueGrowth(distinctPeriods, "ANNUAL"); // 1-back: (1000-800)/800 = 0.25
+    expect(wrongIfUnfixed).toEqual({ status: "AVAILABLE", value: 1.0, asOf: "current-asOf" });
+    expect(correctForAnnual).toEqual({ status: "AVAILABLE", value: 0.25, asOf: "current-asOf" });
+  });
+});
+
+describe("computeGrowthTrend — Phase I.2 ANNUAL cadence", () => {
+  const threeYears = [
+    period("FY2023", { revenue: available(1000, "fy2023-asOf") }),
+    period("FY2024", { revenue: available(1100, "fy2024-asOf") }), // growth vs FY2023: 0.1
+    period("FY2025", { revenue: available(1320, "fy2025-asOf") }), // growth vs FY2024: 0.2
+  ];
+
+  it("computes revenueGrowth(current year) - revenueGrowth(previous year) using a 1-period offset", () => {
+    const result = computeGrowthTrend(threeYears, "ANNUAL");
+    expect(result.status).toBe("AVAILABLE");
+    if (result.status === "AVAILABLE") {
+      expect(result.value).toBeCloseTo(0.1, 10);
+      expect(result.asOf).toBe("fy2025-asOf");
+    }
+  });
+
+  it("MISSING with fewer than 3 annual periods", () => {
+    expect(computeGrowthTrend(threeYears.slice(1), "ANNUAL")).toEqual({ status: "MISSING" }); // exactly 2
+    expect(computeGrowthTrend([], "ANNUAL")).toEqual({ status: "MISSING" });
+  });
+
+  it("the SAME 3 periods are MISSING under the default QUARTERLY mode (needs 6)", () => {
+    expect(computeGrowthTrend(threeYears)).toEqual({ status: "MISSING" });
+  });
+});
+
+describe("computeTrailingTwelveMonthRevenue — Phase I.2 ANNUAL cadence", () => {
+  const oneYear = [period("FY2025", { revenue: available(5000, "fy2025-asOf") })];
+
+  it("is the single most recent annual period's own revenue directly — not a sum of 4 periods (that would be 4 years, not twelve months)", () => {
+    expect(computeTrailingTwelveMonthRevenue(oneYear, "ANNUAL")).toEqual({ status: "AVAILABLE", value: 5000, asOf: "fy2025-asOf" });
+  });
+
+  it("ignores older annual periods entirely — never sums multiple years together", () => {
+    const twoYears = [period("FY2024", { revenue: available(4000) }), ...oneYear];
+    expect(computeTrailingTwelveMonthRevenue(twoYears, "ANNUAL")).toEqual({ status: "AVAILABLE", value: 5000, asOf: "fy2025-asOf" });
+  });
+
+  it("MISSING when the current annual period's revenue is itself MISSING — no estimation from a prior year", () => {
+    expect(computeTrailingTwelveMonthRevenue([{ ...oneYear[0], revenue: MISSING }], "ANNUAL")).toEqual({ status: "MISSING" });
+  });
+
+  it("MISSING when periods is empty", () => {
+    expect(computeTrailingTwelveMonthRevenue([], "ANNUAL")).toEqual({ status: "MISSING" });
+  });
+});
+
+describe("computeNetCashToRevenue — Phase I.2 ANNUAL cadence", () => {
+  const oneYear = [
+    period("FY2025", {
+      revenue: available(400, "fy2025-asOf"),
+      cashAndEquivalents: available(300, "fy2025-asOf"),
+      totalDebt: available(100, "fy2025-asOf"),
+    }),
+  ];
+
+  it("uses the single annual period's own revenue as the TTM denominator", () => {
+    expect(computeNetCashToRevenue(oneYear, "ANNUAL")).toEqual({ status: "AVAILABLE", value: 0.5, asOf: "fy2025-asOf" });
+  });
+
+  it("MISSING when the annual TTM revenue itself can't be computed", () => {
+    expect(computeNetCashToRevenue([{ ...oneYear[0], revenue: MISSING }], "ANNUAL")).toEqual({ status: "MISSING" });
+  });
+});
+
 describe("mapGuidanceEvidenceToScore — spec §12's table, cited verbatim", () => {
   const cases: [GuidanceEvidence["direction"], GuidanceEvidence["magnitude"], number][] = [
     ["RAISED", "MATERIAL", 90],

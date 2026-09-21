@@ -1,3 +1,11 @@
+// v0.1 real-data cleanup — no longer reachable from production runtime
+// (use-portfolio-state.ts starts empty; nothing else imports this file
+// except stock-playbook-seed.ts, itself now test-only too). Kept as a
+// realistic, shared fixture for domain validation tests (engine.test.ts,
+// snapshot.test.ts, the b5.*.test.ts suite, etc.) — do not re-wire this
+// into any production path; a real user's own portfolio lives in
+// localStorage only (src/lib/use-portfolio-state.ts).
+//
 // Real Portfolio holdings seed — Phase G.1 migration of portfolio-seed.ts's
 // holdings array into the new Holding[] shape (design §3, step 3).
 // Additive: portfolio-seed.ts/unity-seed.ts are unchanged and still power

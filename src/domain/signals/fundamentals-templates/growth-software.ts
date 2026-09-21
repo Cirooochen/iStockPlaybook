@@ -66,13 +66,16 @@ const W = RULESET.fundamentals.growthSoftware;
 const revenueGrowth: FundamentalsComponentDefinition = {
   key: "revenueGrowth",
   weight: W.revenueGrowthWeight,
-  score: (raw) => scoreFromAnchors(W.revenueGrowthAnchors, computeRevenueGrowth(raw.periods)),
+  // Phase I.2 — `raw.periodType` threaded through: computeRevenueGrowth's
+  // "same period prior year" offset depends on cadence (4 periods back
+  // for QUARTERLY, 1 for ANNUAL). See fundamentals.ts's own doc comment.
+  score: (raw) => scoreFromAnchors(W.revenueGrowthAnchors, computeRevenueGrowth(raw.periods, raw.periodType)),
 };
 
 const growthTrend: FundamentalsComponentDefinition = {
   key: "growthTrend",
   weight: W.growthTrendWeight,
-  score: (raw) => scoreFromAnchors(W.growthTrendAnchors, computeGrowthTrend(raw.periods)),
+  score: (raw) => scoreFromAnchors(W.growthTrendAnchors, computeGrowthTrend(raw.periods, raw.periodType)),
 };
 
 const operatingMargin: FundamentalsComponentDefinition = {
@@ -96,7 +99,10 @@ const fcfMargin: FundamentalsComponentDefinition = {
 const balanceSheet: FundamentalsComponentDefinition = {
   key: "balanceSheet",
   weight: W.balanceSheetWeight,
-  score: (raw) => scoreFromAnchors(W.netCashToRevenueAnchors, computeNetCashToRevenue(raw.periods)),
+  // Phase I.2 — netCashToRevenue's own trailing-twelve-month-revenue
+  // denominator is cadence-dependent (sum of 4 quarters vs. the single
+  // most recent annual period) — see computeTrailingTwelveMonthRevenue.
+  score: (raw) => scoreFromAnchors(W.netCashToRevenueAnchors, computeNetCashToRevenue(raw.periods, raw.periodType)),
 };
 
 // Guidance — spec §12's discrete mapping (mapGuidanceEvidenceToScore),

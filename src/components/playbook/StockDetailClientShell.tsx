@@ -19,53 +19,75 @@
 // a STOCK holding with no config now renders a "No Playbook" state with a
 // Create Playbook entry point (docs/phase-h3-playbook-onboarding-ux.md
 // §1.1) instead of the route 404ing (src/app/stocks/[ticker]/page.tsx no
-// longer gates on a static seed config). Unity's exact existing
-// Scorecard/ActionZone/Timeline content is preserved unchanged via an
-// identity check (UNITY_INSTRUMENT_ID) — every other confirmed config
-// uses H.4's deterministic builders instead.
+// longer gates on a static seed config).
+//
+// v0.1 real-data cleanup — every confirmed config now uses H.4's
+// deterministic onboarded builders, with no exceptions: the Unity
+// identity check + hand-typed Scorecard/ActionZone/Timeline content this
+// comment used to describe here is gone (was: a guardrail to keep
+// Unity's pre-H.4 hand-authored content byte-identical; no longer needed
+// or desired now that the runtime carries no seed data to preserve).
 import { useState } from "react";
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import type { Scorecard, StockSeed, TimelineEntry } from "@/types/playbook";
 import type { MomentumScoreResult, FundamentalsScoreResult } from "@/domain/engine";
+import type { FundamentalsPeriodType, RawFundamentalsPeriod } from "@/types/fundamentals";
+import type { EvRevenueCheckpoint } from "@/domain/signals/valuation-checkpoints";
 import { usePortfolioState } from "@/lib/use-portfolio-state";
 import { toStockEngineInputs } from "@/domain/portfolio/snapshot";
 import { applyTransactionToHoldings } from "@/domain/portfolio/apply-transaction";
 import { buildOnboardingBaselineScorecard } from "@/domain/playbook/onboarding-scorecard";
 import { buildOnboardedActionZoneTemplates } from "@/domain/playbook/action-zone-templates";
 import { deriveFundamentalsModelFit } from "@/domain/playbook/fundamentals-model-fit";
-import { unityActionZones, unityScorecard, unityTimeline } from "@/data/unity-seed";
 import { PlaybookClientShell } from "@/components/playbook/PlaybookClientShell";
 import { PlaybookOnboardingOverlay } from "@/components/playbook/onboarding/PlaybookOnboardingOverlay";
 
-// Matches holdings-seed.ts's Unity instrument id — special-cased ONLY to
-// keep Unity's hand-typed Scorecard/ActionZone/Timeline content exactly
-// as it was before H.4 (guardrail: "existing Unity behavior must remain
-// unchanged"). No other stock is special-cased.
-const UNITY_INSTRUMENT_ID = "U";
-
 interface Props {
   ticker: string;
-  // Static instrument identity (from holdings-seed.ts) — used only as a
-  // display name if the live holding can't be found at all (e.g. deleted
-  // from the Portfolio page, or a ticker that was never a real holding),
-  // since at that point there's no live instrument record left to read a
-  // name from.
+  // Used only as a display name if the live holding can't be found at
+  // all (e.g. deleted from the Portfolio page, or a ticker that was
+  // never a real holding), since at that point there's no live
+  // instrument record left to read a name from. v0.1 real-data cleanup:
+  // the caller (page.tsx) now just passes the ticker itself — no static
+  // seed identity exists to look up a real display name from server-side.
   fallbackName: string;
-  // No live quote/USD/daily-change provider exists in the new model
-  // (brief §9 — pricing boundary explicitly out of scope). Undefined for
-  // every stock except Unity, which alone has real hand-seeded data for
-  // it (unity-seed.ts) — the caller (page.tsx) only supplies this for
-  // Unity. Neither field feeds the engine or any calculation —
-  // market.executionPriceEur below is the real, live, one-source-of-truth
-  // price. Phase H.6 hardening: previously passed through unconditionally
-  // for every ticker, so a non-Unity stock's Hero Stack showed Unity's
-  // literal USD price and daily change as if it were its own (H.6 audit
-  // finding — fixed here; see StockHeader.tsx for the corresponding
-  // "omit rather than fabricate" rendering change).
+  // No live quote/USD/daily-change provider exists in this model (brief
+  // §9 — pricing boundary explicitly out of scope), and no caller
+  // currently populates this (v0.1 real-data cleanup removed the one
+  // hand-seeded source it ever had). Kept as a real, honestly-optional
+  // mechanism rather than deleted outright: StockHeader already omits the
+  // line rather than fabricating one when it's undefined (H.6 hardening),
+  // so a future live secondary-market price source could still supply it
+  // without any change here. Neither field feeds the engine or any
+  // calculation — market.executionPriceEur below is the real, live,
+  // one-source-of-truth price.
   legacyMarketColor?: { primaryPriceUsd: number; marketCurrency: string; dailyChangePct: number };
   initialMomentumResult?: MomentumScoreResult;
   initialFundamentalsResult?: FundamentalsScoreResult;
+  /**
+   * Phase I.5 — the raw periods/periodType behind `initialFundamentalsResult`,
+   * from the SAME fetch (docs/phase-i-minimum-research-evidence.md §14) —
+   * needed only for PlaybookClientShell's Recent Changes card
+   * (FundamentalChangeEvidence reads raw periods directly, never the
+   * scored result). Not forwarded to PlaybookOnboardingOverlay below,
+   * which has no use for them.
+   */
+  initialFundamentalsPeriods?: RawFundamentalsPeriod[];
+  initialFundamentalsPeriodType?: FundamentalsPeriodType;
+  /**
+   * Phase I.4B — live EV/Revenue checkpoints (Phase I.4A,
+   * fetchLiveEvRevenueCheckpoints), from a SEPARATE live fetch (page.tsx)
+   * alongside initialFundamentalsResult — needed only for
+   * PlaybookClientShell's Valuation Context card
+   * (deriveValuationContext). `undefined` on any fetch failure; an empty
+   * array is a distinct, legitimate outcome (every candidate
+   * checkpoint's required evidence genuinely missing — Unity's real
+   * shape) that deriveValuationContext already treats identically to
+   * "Not available." Not forwarded to PlaybookOnboardingOverlay below,
+   * which has no use for it.
+   */
+  initialEvRevenueCheckpoints?: EvRevenueCheckpoint[];
 }
 
 export function StockDetailClientShell({
@@ -74,6 +96,9 @@ export function StockDetailClientShell({
   legacyMarketColor,
   initialMomentumResult,
   initialFundamentalsResult,
+  initialFundamentalsPeriods,
+  initialFundamentalsPeriodType,
+  initialEvRevenueCheckpoints,
 }: Props) {
   const { holdings, setHoldings, configs, setConfigs, snapshot } = usePortfolioState();
   const [onboardingOpen, setOnboardingOpen] = useState(false);
@@ -212,49 +237,55 @@ export function StockDetailClientShell({
     playbook: config.playbook,
   };
 
-  const isUnity = config.instrumentId === UNITY_INSTRUMENT_ID;
-  // Post-Phase-H Trust Cleanup (docs/post-phase-h-product-review.md F4)
-  // — same isUnity signal already used above, never a new classifier.
-  const fundamentalsModelFit = deriveFundamentalsModelFit(isUnity);
-  const initialScorecard: Scorecard = isUnity ? unityScorecard : buildOnboardingBaselineScorecard();
-  const initialZones = isUnity
-    ? unityActionZones
-    : buildOnboardedActionZoneTemplates({
-        strategy: config.strategy,
-        currentShares: engineInputs.position.shares,
-        weightPct: engineInputs.position.portfolioWeightPct,
-        portfolioTotalEur: engineInputs.portfolioTotalEur,
-        executionPriceEur,
-      });
-  const initialTimeline: TimelineEntry[] = isUnity
-    ? unityTimeline
-    : [
-        {
-          date: new Date(config.playbook.updatedAt).toLocaleDateString("en-GB", {
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-          }),
-          type: "PLAYBOOK_UPDATED",
-          summary: "Playbook created",
-          detail: config.playbook.summary,
-        },
-      ];
+  // v0.1 real-data cleanup — no confirmed archetype fit exists for any
+  // stock without a real classifier (H.0 §5 item 1, still explicitly out
+  // of scope) — every stock, including a real Unity holding, is now
+  // honestly UNKNOWN_FIT, matching what every non-seeded stock already
+  // showed before this cleanup.
+  const fundamentalsModelFit = deriveFundamentalsModelFit(false);
+  const initialScorecard: Scorecard = buildOnboardingBaselineScorecard();
+  const initialZones = buildOnboardedActionZoneTemplates({
+    strategy: config.strategy,
+    currentShares: engineInputs.position.shares,
+    weightPct: engineInputs.position.portfolioWeightPct,
+    portfolioTotalEur: engineInputs.portfolioTotalEur,
+    executionPriceEur,
+  });
+  const initialTimeline: TimelineEntry[] = [
+    {
+      date: new Date(config.playbook.updatedAt).toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      }),
+      type: "PLAYBOOK_UPDATED",
+      summary: "Playbook created",
+      detail: config.playbook.summary,
+    },
+  ];
 
   return (
-    <PlaybookClientShell
-      seed={seed}
-      initialZones={initialZones}
-      initialScorecard={initialScorecard}
-      initialTimeline={initialTimeline}
-      initialPortfolioTotalEur={engineInputs.portfolioTotalEur}
-      availableCashEur={availableCashEur}
-      onTransaction={handleTransaction}
-      initialMomentumResult={initialMomentumResult}
-      initialFundamentalsResult={initialFundamentalsResult}
-      showHandAuthoredThesisContent={isUnity}
-      fundamentalsModelFit={fundamentalsModelFit}
-    />
+    // Phase F "Hero Stack" calls for a single, centered column (~640-760px)
+    // carrying the Primary Action as dominant content, rather than the
+    // sidebar's full 1240px main-content width (AppShell.tsx) — scoped to
+    // this page only so the Portfolio dashboard's own layout is untouched.
+    <div className="max-w-[720px] mx-auto">
+      <PlaybookClientShell
+        seed={seed}
+        initialZones={initialZones}
+        initialScorecard={initialScorecard}
+        initialTimeline={initialTimeline}
+        initialPortfolioTotalEur={engineInputs.portfolioTotalEur}
+        availableCashEur={availableCashEur}
+        onTransaction={handleTransaction}
+        initialMomentumResult={initialMomentumResult}
+        initialFundamentalsResult={initialFundamentalsResult}
+        initialFundamentalsPeriods={initialFundamentalsPeriods}
+        initialFundamentalsPeriodType={initialFundamentalsPeriodType}
+        initialEvRevenueCheckpoints={initialEvRevenueCheckpoints}
+        fundamentalsModelFit={fundamentalsModelFit}
+      />
+    </div>
   );
 }
 

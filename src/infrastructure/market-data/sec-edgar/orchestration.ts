@@ -26,11 +26,45 @@ import { mapEdgarCompanyFacts } from "./mappers";
 import { resolveCikForTicker } from "./ticker-resolver";
 import { scoreFundamentals, type FundamentalsScoreResult } from "@/domain/signals/fundamentals-score";
 import { GROWTH_SOFTWARE_TEMPLATE } from "@/domain/signals/fundamentals-templates/growth-software";
+import type { DataField } from "@/types/market-data";
+import type { FundamentalsPeriodType, RawFundamentalsPeriod } from "@/types/fundamentals";
 
+// Phase I.5 — closes the plumbing gap docs/phase-i-minimum-research-evidence.md
+// identified: `mapEdgarCompanyFacts`'s own `RawFundamentalsData` (specifically
+// its `periods`/`periodType`) used to be computed here and then discarded —
+// only the scored result ever left this function, so nothing above this
+// layer could derive FundamentalChangeEvidence (src/domain/signals/
+// fundamental-change-evidence.ts), which deliberately reads raw periods
+// directly, never FundamentalsScoreResult. This exposes exactly the
+// minimum needed for that — `periods` and `periodType`, not the whole
+// RawFundamentalsData (guidanceEvidence/reportingCurrency/sharesOutstanding
+// have no Recent Changes use) — alongside the existing, unchanged
+// FundamentalsScoreResult, from the SAME fetch — never a second SEC EDGAR
+// round trip for the same data.
+// Phase I.4A — additionally exposes `reportingCurrency`/
+// `sharesOutstandingByAccession` from that SAME fetch, alongside
+// `periods`/`periodType` above (same "expose the minimum needed, from the
+// same fetch, never a second round trip" reasoning Phase I.5 already
+// established) — the raw evidence a future Valuation Context checkpoint
+// build needs (src/domain/signals/valuation-checkpoints.ts), on top of
+// what FundamentalChangeEvidence already reads.
+export interface FundamentalsFetchResult {
+  scoreResult: FundamentalsScoreResult;
+  periods: RawFundamentalsPeriod[];
+  periodType: FundamentalsPeriodType;
+  reportingCurrency: string | undefined;
+  sharesOutstandingByAccession: Record<string, DataField<number>>;
+}
+
+// Phase I.3.1 — no `reportingCurrency` parameter (Phase I.1's own design
+// here was wrong — see docs/phase-i-minimum-research-evidence.md §12/§13):
+// mapEdgarCompanyFacts now discovers the filer's reporting currency
+// itself, from its own target financial concepts. No caller of this
+// function needs to know a currency in advance.
 export async function fetchLiveFundamentalsResult(
   stockSymbol: string,
   checkedAt: string
-): Promise<FundamentalsScoreResult | undefined> {
+): Promise<FundamentalsFetchResult | undefined> {
   try {
     const config = createSecEdgarClientConfigFromEnv();
 
@@ -48,7 +82,13 @@ export async function fetchLiveFundamentalsResult(
     const companyFactsPayload = await fetchCompanyFacts(config, cik);
     const raw = mapEdgarCompanyFacts(companyFactsPayload, checkedAt);
 
-    return scoreFundamentals(GROWTH_SOFTWARE_TEMPLATE, raw);
+    return {
+      scoreResult: scoreFundamentals(GROWTH_SOFTWARE_TEMPLATE, raw),
+      periods: raw.periods,
+      periodType: raw.periodType,
+      reportingCurrency: raw.reportingCurrency,
+      sharesOutstandingByAccession: raw.sharesOutstandingByAccession,
+    };
   } catch (err) {
     console.error("[sec-edgar] live fundamentals fetch failed, falling back to existing Scorecard behavior:", err);
     return undefined;
